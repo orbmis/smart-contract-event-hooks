@@ -1,4 +1,19 @@
 {
+  "name": "contracthooks",
+  "version": "1.0.0",
+  "description": "Reference implementation for contract hooks",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "test": "truffle test"
+  },
+  "author": "Simon Brown<orbmis@pm.me>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/orbmis/hooks"
+  },
+  "license": "MIT",
   "devDependencies": {
     "@openzeppelin/contracts": "^4.7.1",
     "chai": "^4.3.6",
