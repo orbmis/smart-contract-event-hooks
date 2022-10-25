@@ -1,9 +1,9 @@
 const util = require('util')
 const ethSigUtil = require('@metamask/eth-sig-util')
-const { getMessage } = require('eip-712')
 const truffleAssert = require('truffle-assertions')
 const ethUtil = require('ethereumjs-util')
 const { assert } = require('chai')
+
 const Registry = artifacts.require('Registry')
 const Publisher = artifacts.require('Publisher')
 const Subscriber = artifacts.require('Subscriber')
@@ -17,9 +17,23 @@ contract('Registry', (accounts) => {
     registryInstance = await Registry.deployed()
   })
 
-  it('should add a hook to the publisher', async () => {
-    await subscriberInstance.addPublisher(publisherInstance.address)
+  it('Subscriber should allow owner to add publisher', async function () {
+    await subscriberInstance.addPublisher(accounts[1])
 
+    const publishersCheck = await subscriberInstance.validPublishers.call(0)
+
+    assert.equal(publishersCheck, accounts[1])
+  })
+
+  it('Subscriber should prevent others from adding publishers', async function () {
+    try {
+      await subscriberInstance.addPublisher(accounts[2], { from: accounts[1] })
+    } catch (e) {
+      assert.equal(e.message.includes('Ownable: caller is not the owner'), true)
+    }
+  })
+
+  it('should add a hook to the publisher', async () => {
     await publisherInstance.addHook(1, accounts[1], { from: accounts[0] })
 
     const addHookResult = await publisherInstance.hooks.call(1)
@@ -77,7 +91,7 @@ contract('Registry', (accounts) => {
 
   it('should not allow a publisher to be added to the registry more than once', async () => {
     try {
-      const registerHookResult = await registryInstance.registerHook(publisherInstance.address, 1, {
+      await registryInstance.registerHook(publisherInstance.address, 1, {
         from: accounts[1],
       })
     } catch (e) {
@@ -87,7 +101,7 @@ contract('Registry', (accounts) => {
 
   it('should not allow an invalid hook to be added to the registry', async () => {
     try {
-      const registerHookResult = await registryInstance.registerHook(publisherInstance.address, 2, {
+      await registryInstance.registerHook(publisherInstance.address, 2, {
         from: accounts[1],
       })
     } catch (e) {
@@ -117,7 +131,7 @@ contract('Registry', (accounts) => {
       )
     })
 
-    const addSubscriberResult = await registryInstance.subscribers.call(
+    await registryInstance.subscribers.call(
       subscriberInstance.address,
       publisherInstance.address,
       1
@@ -130,7 +144,7 @@ contract('Registry', (accounts) => {
 
   it('should not allow a subscriber to be added to the with a fee of zero', async () => {
     try {
-      const registerSubscriberResult = await registryInstance.registerSubscriber(
+      await registryInstance.registerSubscriber(
         publisherInstance.address,
         subscriberInstance.address,
         1,
@@ -148,7 +162,7 @@ contract('Registry', (accounts) => {
     const FEE = 460000
 
     try {
-      const registerSubscriberResult = await registryInstance.registerSubscriber(
+      await registryInstance.registerSubscriber(
         publisherInstance.address,
         subscriberInstance.address,
         1,
@@ -181,7 +195,7 @@ contract('Registry', (accounts) => {
 
   it('should prevent a hook from being updated if not authorized', async () => {
     try {
-      const updateHookResult = await registryInstance.updateHook(
+      await registryInstance.updateHook(
         publisherInstance.address,
         accounts[3],
         1,
@@ -213,7 +227,7 @@ contract('Registry', (accounts) => {
 
   it('should prevent a subscription from being updated if not authorized', async () => {
     try {
-      const updateSubscriberResult = await registryInstance.updateSubscriber(
+      await registryInstance.updateSubscriber(
         publisherInstance.address,
         subscriberInstance.address,
         1,
@@ -225,15 +239,8 @@ contract('Registry', (accounts) => {
     }
   })
 
-  // https://gist.github.com/markodayan/e05f524b915f129c4f8500df816a369b
-  // https://web3auth.io/docs/connect-blockchain/ethereum#sign-message
-  // https://stackoverflow.com/questions/58257459/solidity-web3js-eip712-signing-uint256-works-signing-uint256-does-not
   it('Subscriber should verify incoming hooks', async function () {
-    const demo = await Subscriber.deployed()
-
     const chainId = await web3.eth.getChainId()
-
-    const payloadHash = web3.utils.keccak256('test')
 
     const seed = web3.utils.soliditySha3(
       { type: 'bytes32', value: web3.utils.keccak256('one') },
@@ -247,7 +254,9 @@ contract('Registry', (accounts) => {
       web3.utils.keccak256('three'),
     ]
 
-    const salt = '0xb225c57bf2111d6955b97ef0f55525b5a400dc909a5506e34b102e193dd53406'
+    const salt = '0x5db5bd0cd6f41d9d705525bc4773e06c1cdcb68185b4e00b0b26cc7d2e23761d'
+
+    const nonce = 2
 
     const data = {
       types: {
@@ -258,26 +267,24 @@ contract('Registry', (accounts) => {
           { type: 'address', name: 'verifyingContract' },
           { type: 'bytes32', name: 'salt' },
         ],
-        Hook: [{ type: 'bytes32', name: 'payload' }],
+        Hook: [
+          { type: 'bytes32', name: 'payload' },
+          { type: 'uint256', name: 'nonce' },
+        ],
       },
       domain: {
         name: 'Hook',
         version: '1',
         chainId,
-        verifyingContract: demo.address,
+        verifyingContract: subscriberInstance.address,
         salt,
       },
       primaryType: 'Hook',
       message: {
         payload: seed,
+        nonce,
       },
     }
-
-    // const signTypedData = ethSigUtil.signTypedData({
-    //   privateKey: Buffer.from(privateKey.substring(2), 'hex'),
-    //   data: eip712TypedData,
-    //   version: ethSigUtil.SignTypedDataVersion.V4,
-    // })
 
     const sendRpc = util.promisify(web3.eth.currentProvider.send)
 
@@ -304,8 +311,10 @@ contract('Registry', (accounts) => {
       'local not verified locally'
     )
 
-    const txResult = await demo.verifyHook(params, accounts[1], v, r, s)
+    const txResult = await subscriberInstance.verifyHook(params, nonce, v, r, s)
 
-    assert.equal(ethUtil.toChecksumAddress(txResult.signer), ethUtil.toChecksumAddress(accounts[1]))
+    const nonceCheck = await subscriberInstance.currentNonce.call()
+
+    assert.equal(nonceCheck.toNumber(), nonce)
   })
 })

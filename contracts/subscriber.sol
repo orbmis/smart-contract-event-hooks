@@ -2,36 +2,36 @@
 
 pragma solidity >=0.7.0 <0.9.0;
 
+import "@openzeppelin/contracts/access/Ownable.sol";
 import "./ISubscriber.sol";
 
-contract Subscriber is ISubscriber {
-    address[] validPublishers;
+contract Subscriber is ISubscriber, Ownable {
+    address[] public validPublishers;
 
     bool stateToggleSwitch;
 
-    // TODO: replay attacks - record nonces
+    uint256 public currentNonce;
 
     bytes32 private constant DOMAIN_TYPEHASH = keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract,bytes32 salt)");
-    bytes32 private constant DOMAIN_SALT = 0xb225c57bf2111d6955b97ef0f55525b5a400dc909a5506e34b102e193dd53406;
+    bytes32 private constant DOMAIN_SALT = 0x5db5bd0cd6f41d9d705525bc4773e06c1cdcb68185b4e00b0b26cc7d2e23761d;
     bytes32 private constant DOMAIN_NAME_HASH = keccak256("Hook");
     bytes32 private constant DOMAIN_VERSION_HASH = keccak256("1");
-    bytes32 private constant TYPE_HASH = keccak256("Hook(bytes32 payload)");
+    bytes32 private constant TYPE_HASH = keccak256("Hook(bytes32 payload,uint256 nonce)");
 
     constructor () {
         stateToggleSwitch = false;
+        currentNonce = 1;
     }
 
-    function addPublisher(address publisherAddress) public {
+    function addPublisher(address publisherAddress) public onlyOwner {
         validPublishers.push(publisherAddress);
     }
 
-    // NB:  Remember to record and verify the nonces !!!!
+    function verifyHook(bytes32[] memory message, uint256 nonce,
+        uint8 v, bytes32 r, bytes32 s) public returns (address signer, bytes32 payload) {
 
-    // https://www.theweb3dev.com/blog/on-chain-authentication
-    // https://blog.mycrypto.com/the-magic-of-digital-signatures-on-ethereum
-    // https://github.com/decentral-ee/eip712-helpers
-    function verifyHook(bytes32[] memory message, address publisher,
-        uint8 v, bytes32 r, bytes32 s) public view returns (address signer, bytes32 payload) {
+        require(nonce > currentNonce, "Obsolete hook detected");
+
         uint256 chainId;
 
         assembly {
@@ -51,7 +51,8 @@ contract Subscriber is ISubscriber {
 
         bytes32 messageHash = keccak256(abi.encode(
             TYPE_HASH,
-            payload));
+            payload,
+            nonce));
 
         bytes32 digest = keccak256(abi.encodePacked(
             "\x19\x01",
@@ -60,33 +61,14 @@ contract Subscriber is ISubscriber {
 
         signer = ecrecover(digest, v, r, s);
 
-        require(signer == publisher);
-    }
-
-    function verifyEventHook(bytes32 hashedMessage, uint8 v, bytes32 r, bytes32 s) public returns (address) {
-        bytes memory prefix = "\x19Ethereum Signed Message:\n32";
-
-        bytes32 prefixedHashMessage = keccak256(abi.encodePacked(prefix, hashedMessage));
-
-        address signer = ecrecover(prefixedHashMessage, v, r, s);
-
-        bool publisherValid = false;
+        bool isPublisherValid = false;
 
         for (uint i = 0; i < validPublishers.length; i++) {
-            if (validPublishers[i] == signer) {
-                publisherValid = true;
-            }
+            isPublisherValid = isPublisherValid || validPublishers[i] == signer;
         }
 
-        if (publisherValid == true) {
-            executeHookLogic();
-        }
+        require(isPublisherValid, "Publisher not valid");
 
-        return publisherValid ? signer : address(0);
-    }
-
-    // do something in response to verified hook
-    function executeHookLogic() internal {
-        stateToggleSwitch = !stateToggleSwitch;
+        currentNonce = nonce;
     }
 }
