@@ -18,6 +18,12 @@ contract('Registry', (accounts) => {
   })
 
   it('Subscriber should allow owner to add publisher', async function () {
+    await web3.eth.sendTransaction({
+      from: accounts[0],
+      to: subscriberInstance.address,
+      value: web3.utils.toWei('1', 'ether'),
+    })
+
     await subscriberInstance.addPublisher(accounts[1])
 
     const publishersCheck = await subscriberInstance.validPublishers.call(0)
@@ -29,7 +35,7 @@ contract('Registry', (accounts) => {
     try {
       await subscriberInstance.addPublisher(accounts[2], { from: accounts[1] })
     } catch (e) {
-      assert.equal(e.message.includes('Ownable: caller is not the owner'), true)
+      assert.include(e.message, 'Ownable: caller is not the owner')
     }
   })
 
@@ -44,7 +50,7 @@ contract('Registry', (accounts) => {
   it('should verify that a publisher permits regitration of a hook', async () => {
     const verifyHookResult = await publisherInstance.verifyEventHook.call(1, accounts[1])
 
-    assert.equal(verifyHookResult, true)
+    assert.isTrue(verifyHookResult)
   })
 
   it('should fire a Hook event from publisher when triggered by transaction', async () => {
@@ -68,7 +74,7 @@ contract('Registry', (accounts) => {
 
     const verifyHookResult = await publisherInstance.verifyEventHook.call(1, accounts[1])
 
-    assert.equal(verifyHookResult, true)
+    assert.isTrue(verifyHookResult)
   })
 
   it('should add a publisher / hook to the registry', async () => {
@@ -95,7 +101,7 @@ contract('Registry', (accounts) => {
         from: accounts[1],
       })
     } catch (e) {
-      assert.equal(e.message.includes('Hook already registered'), true)
+      assert.include(e.message, 'Hook already registered')
     }
   })
 
@@ -105,7 +111,7 @@ contract('Registry', (accounts) => {
         from: accounts[1],
       })
     } catch (e) {
-      assert.equal(e.message.includes('Hook not valid'), true)
+      assert.include(e.message, 'Hook not valid')
     }
   })
 
@@ -154,7 +160,7 @@ contract('Registry', (accounts) => {
         }
       )
     } catch (e) {
-      assert.equal(e.message.includes('Fee must be greater than 0'), true)
+      assert.include(e.message, 'Fee must be greater than 0')
     }
   })
 
@@ -172,7 +178,7 @@ contract('Registry', (accounts) => {
         }
       )
     } catch (e) {
-      assert.equal(e.message.includes('Subscriber already registered'), true)
+      assert.include(e.message, 'Subscriber already registered')
     }
   })
 
@@ -195,14 +201,11 @@ contract('Registry', (accounts) => {
 
   it('should prevent a hook from being updated if not authorized', async () => {
     try {
-      await registryInstance.updateHook(
-        publisherInstance.address,
-        accounts[3],
-        1,
-        { from: accounts[0] }
-      )
+      await registryInstance.updateHook(publisherInstance.address, accounts[3], 1, {
+        from: accounts[0],
+      })
     } catch (e) {
-      assert.equal(e.message.includes('Not authorized to update hook'), true)
+      assert.include(e.message, 'Not authorized to update hook')
     }
   })
 
@@ -235,7 +238,7 @@ contract('Registry', (accounts) => {
         { from: accounts[0] }
       )
     } catch (e) {
-      assert.equal(e.message.includes('Not authorized to update subscriber'), true)
+      assert.include(e.message, 'Not authorized to update subscriber')
     }
   })
 
@@ -311,10 +314,26 @@ contract('Registry', (accounts) => {
       'local not verified locally'
     )
 
+    const balanceBefore = await web3.eth.getBalance(accounts[0])
+
     const txResult = await subscriberInstance.verifyHook(params, nonce, v, r, s)
 
     const nonceCheck = await subscriberInstance.currentNonce.call()
 
     assert.equal(nonceCheck.toNumber(), nonce)
+
+    const balanceAfter = await web3.eth.getBalance(accounts[0])
+
+    const difference = BigInt(balanceAfter) - BigInt(balanceBefore)
+
+    const txFees = txResult.receipt.effectiveGasPrice * txResult.receipt.gasUsed
+
+    const actual = difference + BigInt(txFees)
+
+    const feeExpected = 0.001
+
+    const feeReceived = Number(web3.utils.fromWei(actual.toString()))
+
+    assert.equal(feeReceived, feeExpected)
   })
 })

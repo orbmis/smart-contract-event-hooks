@@ -6,7 +6,8 @@
     "test": "test"
   },
   "scripts": {
-    "test": "truffle test"
+    "test": "truffle test",
+    "prettify": "prettier --write 'contracts/*.sol'"
   },
   "author": "Simon Brown<orbmis@pm.me>",
   "repository": {
@@ -17,6 +18,8 @@
   "devDependencies": {
     "@openzeppelin/contracts": "^4.7.1",
     "chai": "^4.3.6",
+    "prettier": "^2.7.1",
+    "prettier-plugin-solidity": "^1.0.0-beta.24",
     "truffle": "^5.5.24",
     "truffle-assertions": "^0.9.2"
   },
