@@ -8,35 +8,85 @@ const Registry = artifacts.require('Registry')
 const Publisher = artifacts.require('Publisher')
 const Subscriber = artifacts.require('Subscriber')
 
-contract('Registry', (accounts) => {
-  let publisherInstance, registryInstance, subscriberInstance
+const seed = web3.utils.soliditySha3(
+  { type: 'bytes32', value: web3.utils.keccak256('one') },
+  { type: 'bytes32', value: web3.utils.keccak256('two') },
+  { type: 'bytes32', value: web3.utils.keccak256('three') }
+)
+
+const params = [
+  web3.utils.keccak256('one'),
+  web3.utils.keccak256('two'),
+  web3.utils.keccak256('three'),
+]
+
+async function getTypedData(nonce, verifyingContract, publisherAddress) {
+  const chainId = await web3.eth.getChainId()
+
+  const salt = '0x5db5bd0cd6f41d9d705525bc4773e06c1cdcb68185b4e00b0b26cc7d2e23761d'
+
+  const data = {
+    types: {
+      EIP712Domain: [
+        { type: 'string', name: 'name' },
+        { type: 'string', name: 'version' },
+        { type: 'uint256', name: 'chainId' },
+        { type: 'address', name: 'verifyingContract' },
+        { type: 'bytes32', name: 'salt' },
+      ],
+      Hook: [
+        { type: 'bytes32', name: 'payload' },
+        { type: 'uint256', name: 'nonce' },
+      ],
+    },
+    domain: {
+      name: 'Hook',
+      version: '1',
+      chainId,
+      verifyingContract,
+      salt,
+    },
+    primaryType: 'Hook',
+    message: {
+      payload: seed,
+      nonce,
+    },
+  }
+
+  const sendRpc = util.promisify(web3.eth.currentProvider.send)
+
+  const response = await sendRpc.bind(web3.currentProvider)({
+    jsonrpc: '2.0',
+    method: 'eth_signTypedData',
+    params: [publisherAddress, data],
+    id: new Date().getTime(),
+  })
+
+  const signature = response.result.substring(2)
+
+  r = '0x' + signature.substring(0, 64)
+  s = '0x' + signature.substring(64, 128)
+  v = parseInt(signature.substring(128, 130), 16)
+
+  recovered = ethSigUtil.recoverTypedSignature({
+    data: data,
+    signature: response.result,
+    version: ethSigUtil.SignTypedDataVersion.V4,
+  })
+
+  assert(
+    ethUtil.toChecksumAddress(recovered) === ethUtil.toChecksumAddress(publisherAddress),
+    'local not verified locally'
+  )
+
+  return { v, r, s }
+}
+
+contract('Publisher', (accounts) => {
+  let publisherInstance
 
   beforeEach(async () => {
     publisherInstance = await Publisher.deployed()
-    subscriberInstance = await Subscriber.deployed()
-    registryInstance = await Registry.deployed()
-  })
-
-  it('Subscriber should allow owner to add publisher', async function () {
-    await web3.eth.sendTransaction({
-      from: accounts[0],
-      to: subscriberInstance.address,
-      value: web3.utils.toWei('1', 'ether'),
-    })
-
-    await subscriberInstance.addPublisher(accounts[1])
-
-    const publishersCheck = await subscriberInstance.validPublishers.call(0)
-
-    assert.equal(publishersCheck, accounts[1])
-  })
-
-  it('Subscriber should prevent others from adding publishers', async function () {
-    try {
-      await subscriberInstance.addPublisher(accounts[2], { from: accounts[1] })
-    } catch (e) {
-      assert.include(e.message, 'Ownable: caller is not the owner')
-    }
   })
 
   it('should add a hook to the publisher', async () => {
@@ -76,8 +126,19 @@ contract('Registry', (accounts) => {
 
     assert.isTrue(verifyHookResult)
   })
+})
+
+contract('Registry', (accounts) => {
+  let publisherInstance, registryInstance, subscriberInstance
+
+  beforeEach(async () => {
+    publisherInstance = await Publisher.deployed()
+    subscriberInstance = await Subscriber.deployed()
+    registryInstance = await Registry.deployed()
+  })
 
   it('should add a publisher / hook to the registry', async () => {
+    await publisherInstance.addHook(1, accounts[1], { from: accounts[0] })
     const registerHookResult = await registryInstance.registerHook(publisherInstance.address, 1, {
       from: accounts[1],
     })
@@ -241,86 +302,53 @@ contract('Registry', (accounts) => {
       assert.include(e.message, 'Not authorized to update subscriber')
     }
   })
+})
 
-  it('Subscriber should verify incoming hooks', async function () {
-    const chainId = await web3.eth.getChainId()
+contract('Subscriber', (accounts) => {
+  let subscriberInstance
 
-    const seed = web3.utils.soliditySha3(
-      { type: 'bytes32', value: web3.utils.keccak256('one') },
-      { type: 'bytes32', value: web3.utils.keccak256('two') },
-      { type: 'bytes32', value: web3.utils.keccak256('three') }
-    )
+  beforeEach(async () => {
+    subscriberInstance = await Subscriber.deployed()
+  })
 
-    const params = [
-      web3.utils.keccak256('one'),
-      web3.utils.keccak256('two'),
-      web3.utils.keccak256('three'),
-    ]
+  it('should allow owner to add publisher', async function () {
+    await web3.eth.sendTransaction({
+      from: accounts[0],
+      to: subscriberInstance.address,
+      value: web3.utils.toWei('1', 'ether'),
+    })
 
-    const salt = '0x5db5bd0cd6f41d9d705525bc4773e06c1cdcb68185b4e00b0b26cc7d2e23761d'
+    await subscriberInstance.addPublisher(accounts[1])
 
-    const nonce = 2
+    const publishersCheck = await subscriberInstance.validPublishers.call(0)
 
-    const data = {
-      types: {
-        EIP712Domain: [
-          { type: 'string', name: 'name' },
-          { type: 'string', name: 'version' },
-          { type: 'uint256', name: 'chainId' },
-          { type: 'address', name: 'verifyingContract' },
-          { type: 'bytes32', name: 'salt' },
-        ],
-        Hook: [
-          { type: 'bytes32', name: 'payload' },
-          { type: 'uint256', name: 'nonce' },
-        ],
-      },
-      domain: {
-        name: 'Hook',
-        version: '1',
-        chainId,
-        verifyingContract: subscriberInstance.address,
-        salt,
-      },
-      primaryType: 'Hook',
-      message: {
-        payload: seed,
-        nonce,
-      },
+    assert.equal(publishersCheck, accounts[1])
+  })
+
+  it('should prevent others from adding publishers', async function () {
+    try {
+      await subscriberInstance.addPublisher(accounts[2], { from: accounts[1] })
+    } catch (e) {
+      assert.include(e.message, 'Ownable: caller is not the owner')
     }
+  })
 
-    const sendRpc = util.promisify(web3.eth.currentProvider.send)
+  it('should verify incoming hooks', async function () {
+    const sig = await getTypedData(2, subscriberInstance.address, accounts[1])
 
-    const response = await sendRpc.bind(web3.currentProvider)({
-      jsonrpc: '2.0',
-      method: 'eth_signTypedData',
-      params: [accounts[1], data],
-      id: new Date().getTime(),
-    })
-
-    const signature = response.result.substring(2)
-    const r = '0x' + signature.substring(0, 64)
-    const s = '0x' + signature.substring(64, 128)
-    const v = parseInt(signature.substring(128, 130), 16)
-
-    recovered = ethSigUtil.recoverTypedSignature({
-      data: data,
-      signature: response.result,
-      version: ethSigUtil.SignTypedDataVersion.V4,
-    })
-
-    assert(
-      ethUtil.toChecksumAddress(recovered) === ethUtil.toChecksumAddress(accounts[1]),
-      'local not verified locally'
-    )
-
-    const balanceBefore = await web3.eth.getBalance(accounts[0])
-
-    const txResult = await subscriberInstance.verifyHook(params, nonce, v, r, s)
+    await subscriberInstance.verifyHook(params, 2, sig.v, sig.r, sig.s)
 
     const nonceCheck = await subscriberInstance.currentNonce.call()
 
-    assert.equal(nonceCheck.toNumber(), nonce)
+    assert.equal(nonceCheck.toNumber(), 2)
+  })
+
+  it('pay the correct relayer fee', async function () {
+    const balanceBefore = await web3.eth.getBalance(accounts[0])
+
+    const sig = await getTypedData(4, subscriberInstance.address, accounts[1])
+
+    const txResult = await subscriberInstance.verifyHook(params, 4, sig.v, sig.r, sig.s)
 
     const balanceAfter = await web3.eth.getBalance(accounts[0])
 
@@ -335,5 +363,23 @@ contract('Registry', (accounts) => {
     const feeReceived = Number(web3.utils.fromWei(actual.toString()))
 
     assert.equal(feeReceived, feeExpected)
+  })
+
+  it('should prevent against re-entrancy and replay attacks', async function () {
+    try {
+      await subscriberInstance.verifyHook(params, 4, v, r, s)
+    } catch (e) {
+      assert.include(e.message, 'Obsolete hook detected')
+    }
+  })
+
+  it('should detect invalid hooks', async function () {
+    const sig = await getTypedData(2, subscriberInstance.address, accounts[4])
+
+    try {
+      await subscriberInstance.verifyHook(params, 2, sig.v, sig.r, sig.s)
+    } catch (e) {
+      assert.include(e.message, 'Obsolete hook detected')
+    }
   })
 })
