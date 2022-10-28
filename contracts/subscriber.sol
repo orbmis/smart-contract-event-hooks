@@ -6,8 +6,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "./ISubscriber.sol";
 
 contract Subscriber is ISubscriber, Ownable {
-
-    event ValueReceived(address user, uint amount);
+    event ValueReceived(address user, uint256 amount);
 
     address[] public validPublishers;
 
@@ -43,12 +42,12 @@ contract Subscriber is ISubscriber, Ownable {
     }
 
     function verifyHook(
-        bytes32[] memory message,
+        bytes32[] memory payload,
         uint256 nonce,
         uint8 v,
         bytes32 r,
         bytes32 s
-    ) public returns (address signer, bytes32 payload) {
+    ) public returns (address signer, bytes32 message) {
         require(nonce > currentNonce, "Obsolete hook detected");
 
         uint256 chainId;
@@ -68,9 +67,9 @@ contract Subscriber is ISubscriber, Ownable {
             )
         );
 
-        payload = keccak256(abi.encode(message[0], message[1], message[2]));
+        message = keccak256(abi.encode(payload[0], payload[1], payload[2]));
 
-        bytes32 messageHash = keccak256(abi.encode(TYPE_HASH, payload, nonce));
+        bytes32 messageHash = keccak256(abi.encode(TYPE_HASH, message, nonce));
 
         bytes32 digest = keccak256(
             abi.encodePacked("\x19\x01", domainHash, messageHash)

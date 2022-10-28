@@ -6,13 +6,15 @@ pragma solidity >=0.7.0 <0.9.0;
 /// @dev Implements a publisher contract
 interface IPublisher {
     /// @dev Example of a function that fires a hook event when it is called
-    /// @param hashedMessage Hash of the hook event payload that was signed
+    /// @param payload The actual payload of the hook event
+    /// @param digest Hash of the hook event payload that was signed
     /// @param threadId The thread number to fire the hook event on
     /// @param v The v part of the signature
     /// @param r The r part of the signature
     /// @param s The s part of the signature
     function fireHook(
-        bytes32 hashedMessage,
+        bytes32[] memory payload,
+        bytes32 digest,
         uint256 threadId,
         uint8 v,
         bytes32 r,
@@ -33,5 +35,8 @@ interface IPublisher {
         view
         returns (bool);
 
+    /// @dev Returns the address that will sign the hook events on a given thread
+    /// @param threadId The thread id of the hook
+    /// @return Returns the address that will sign the hook events on a given thread
     function getEventHook(uint256 threadId) external view returns (address);
 }

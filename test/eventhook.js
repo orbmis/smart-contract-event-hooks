@@ -8,7 +8,7 @@ const Registry = artifacts.require('Registry')
 const Publisher = artifacts.require('Publisher')
 const Subscriber = artifacts.require('Subscriber')
 
-const seed = web3.utils.soliditySha3(
+const digest = web3.utils.soliditySha3(
   { type: 'bytes32', value: web3.utils.keccak256('one') },
   { type: 'bytes32', value: web3.utils.keccak256('two') },
   { type: 'bytes32', value: web3.utils.keccak256('three') }
@@ -48,7 +48,7 @@ async function getTypedData(nonce, verifyingContract, publisherAddress) {
     },
     primaryType: 'Hook',
     message: {
-      payload: seed,
+      payload: digest,
       nonce,
     },
   }
@@ -111,7 +111,8 @@ contract('Publisher', (accounts) => {
     const { v, r, s } = ethUtil.fromRpcSig(signature)
 
     const result = await publisherInstance.fireHook(
-      hashedMessage,
+      params,
+      digest,
       1,
       v,
       ethUtil.bufferToHex(r),
@@ -119,7 +120,7 @@ contract('Publisher', (accounts) => {
     )
 
     truffleAssert.eventEmitted(result, 'Hook', (ev) => {
-      return (ev.hashedMessage = hashedMessage && ev.threadId.toNumber() === 1)
+      return (ev.digest = digest && ev.threadId.toNumber() === 1)
     })
 
     const verifyHookResult = await publisherInstance.verifyEventHook.call(1, accounts[1])
