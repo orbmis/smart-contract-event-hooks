@@ -7,7 +7,7 @@ discussions-to: <URL>
 status: Draft
 type: Standards Track
 category: ERC
-created: 2022-07-11
+created: 2022-10-28
 requires: erc-712
 ---
 
@@ -23,7 +23,7 @@ There exists a number of use cases that require some off-chain party to monitor 
 
 This proposal would allow for a smart contract to contain the logic it needs to respond to events without having to store that logic in some off-chain process.  The smart contract can subscribe to events fired by other smart contracts and would only execute the required logic when it's needed. This method would suit any contract logic that does not require off-chain computation, but requires an off-chain process to monitor chain state in order to call one of it's functions in response response.
 
-Firing hooks from publisher smart contracts still requires an off-chain process to sign a hook payload and broadcast a transaction to execute a function.  To put it another way, somebody has to pull the trigger on the publisher contract, by submitting a transsaction to the publisher contract in order to emit the hook event.  This is how it works today, and this proposal doesn't change that.  Where it does offer an improvement, is that each subscriber no longer needs it's own dedicated off-chain process for monitoring and responding to these events.  Instead, a single incentivized relayer can subscribe to many different events on behalf of multiple consumer contracts.
+Firing hooks from publisher smart contracts still requires an off-chain process to sign a hook payload and broadcast a transaction to execute a function.  To put it another way, somebody has to pull the trigger on the publisher contract, by submitting a transaction to the publisher contract in order to emit the hook event.  This is how it works today, and this proposal doesn't change that.  Where it does offer an improvement, is that each subscriber no longer needs it's own dedicated off-chain process for monitoring and responding to these events.  Instead, a single incentivized relayer can subscribe to many different events on behalf of multiple consumer contracts.
 
 Thanks to innovations such as [web3 webhooks](https://moralis.io/web3-webhooks-the-ultimate-guide-to-blockchain-webhooks/), [web3 actions](https://blog.tenderly.co/new-features-web3-actions-war-rooms-sandbox-debugger-extension/), or [hal.xyz](hal.xyz) creating a relayer is easier than ever.
 
@@ -182,38 +182,43 @@ IPublisher.sol
 
 pragma solidity >=0.7.0 <0.9.0;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
-import "./IPublisher.sol";
-
-contract Publisher is IPublisher, Ownable {
-    uint256 hookNonce;
-
-    event Hook(
-        uint256 indexed threadId,
-        uint256 indexed nonce,
+/// @title IPublisher
+/// @dev Implements a publisher contract
+interface IPublisher {
+    /// @dev Example of a function that fires a hook event when it is called
+    /// @param payload The actual payload of the hook event
+    /// @param digest Hash of the hook event payload that was signed
+    /// @param threadId The thread number to fire the hook event on
+    /// @param v The v part of the signature
+    /// @param r The r part of the signature
+    /// @param s The s part of the signature
+    function fireHook(
+        bytes32[] memory payload,
+        bytes32 digest,
+        uint256 threadId,
         uint8 v,
         bytes32 r,
-        bytes32 s,
-        bytes32 hashedMessage
-    );
+        bytes32 s
+    ) external;
 
-    mapping (uint256 => address) hooks;
+    /// @dev Adds / updates a new hook event internally
+    /// @param threadId The thread id of the hook
+    /// @param publisherPubKey The public key associated with the private key that signs the hook events
+    function addHook(uint256 threadId, address publisherPubKey) external;
 
-    function fireHook(bytes32 hashedMessage, uint8 v, bytes32 r, bytes32 s) public onlyOwner {
-        emit Hook(1, hookNonce++, v, r, s, hashedMessage);
-    }
+    /// @dev Called by the registry contract when registering a hook, used to verify the hook is valid before adding
+    /// @param threadId The thread id of the hook
+    /// @param publisherPubKey The public key associated with the private key that signs the hook events
+    /// @return Returns true if the hook is valid and is ok to add to the registry
+    function verifyEventHook(uint256 threadId, address publisherPubKey)
+        external
+        view
+        returns (bool);
 
-    function addHook(uint256 threadId, address publisherPubKey) public onlyOwner {
-        hooks[threadId] = publisherPubKey;
-    }
-
-    function verifyEventHook(uint256 threadId, address publisherPubKey) public view override returns (bool) {
-        return (hooks[threadId] == publisherPubKey);
-    }
-
-    function getEventHook(uint256 threadId) public view returns (address) {
-        return hooks[threadId];
-    }
+    /// @dev Returns the address that will sign the hook events on a given thread
+    /// @param threadId The thread id of the hook
+    /// @return Returns the address that will sign the hook events on a given thread
+    function getEventHook(uint256 threadId) external view returns (address);
 }
 ```
 
@@ -226,16 +231,19 @@ pragma solidity >=0.7.0 <0.9.0;
 /// @title ISubscriber
 /// @dev Implements a subscriber contract
 interface ISubscriber {
-
     /// @dev Example of a function that is called when a hook is fired by a publisher
-    /// @param hashedMessage Hash of the hook event payload that was signed
+    /// @param message Hash of the hook event payload that was signed
+    /// @param nonce Unique nonce of this hook
     /// @param v The v part of the signature
     /// @param r The r part of the signature
     /// @param s The s part of the signature
-    function verifyEventHook(bytes32 hashedMessage, uint8 v, bytes32 r, bytes32 s) external returns (address);
-
-    /// @dev Contains the logic to execute when a valid hook event has been received
-    function executeHookLogic() external;
+    function verifyHook(
+        bytes32[] memory message,
+        uint256 nonce,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) external returns (address signer, bytes32 payload);
 }
 ```
 
@@ -254,7 +262,9 @@ contract Registry is IRegistry {
     event HookRegistered(
         address indexed publisherContract,
         address publisherPubKey,
-        uint256 threadId
+        uint256 threadId,
+        address result,
+        bool valid
     );
 
     event HookUpdated(
@@ -283,32 +293,59 @@ contract Registry is IRegistry {
 
     /// mapping of subscriberContractAddress to publisherContractAddress to threadIds to fee
     /// a subscriber contract can subscribe to multiple hook events on one or more contracts
-    mapping(address => mapping(address => mapping(uint256 => uint256))) public subscribers;
+    mapping(address => mapping(address => mapping(uint256 => uint256)))
+        public subscribers;
 
     /// records the owners of a subscriber contract so that updates can be authorized
     mapping(address => address) public owners;
 
-    function registerHook(address publisherContract, uint256 threadId) public returns (bool) {
+    function registerHook(address publisherContract, uint256 threadId)
+        public
+        returns (bool)
+    {
         require(
-            (publishers[publisherContract][threadId] != address(0)),
+            (publishers[publisherContract][threadId] == address(0)),
             "Hook already registered"
         );
 
-        require(verifyHook(publisherContract, threadId), "Publisher verification failed");
+        address result = IPublisher(publisherContract).getEventHook(threadId);
 
+        bool isHookValid = verifyHook(publisherContract, threadId);
+
+        require(isHookValid, "Hook not valid");
+
+        // the sender must be the account that signs the hook events
         publishers[publisherContract][threadId] = msg.sender;
 
-        emit HookRegistered(publisherContract, msg.sender, threadId);
+        emit HookRegistered(
+            publisherContract,
+            msg.sender,
+            threadId,
+            result,
+            isHookValid
+        );
 
         return true;
     }
 
-    function verifyHook(address publisherAddress, uint256 threadId) internal returns (bool) {
-        return EventHookPublisher(publisherAddress).verifyEventHook(threadId, msg.sender);
+    function verifyHook(address publisherAddress, uint256 threadId)
+        public
+        view
+        returns (bool)
+    {
+        return
+            IPublisher(publisherAddress).verifyEventHook(threadId, msg.sender);
     }
 
-    function updateHook(address publisherContract, address publisherPubKey, uint256 threadId) public returns (bool) {
-        require(publishers[publisherContract][threadId] == msg.sender, "Not authorized to update hook");
+    function updateHook(
+        address publisherContract,
+        address publisherPubKey,
+        uint256 threadId
+    ) public returns (bool) {
+        require(
+            publishers[publisherContract][threadId] == msg.sender,
+            "Not authorized to update hook"
+        );
 
         publishers[publisherContract][threadId] = publisherPubKey;
 
@@ -317,30 +354,53 @@ contract Registry is IRegistry {
         return true;
     }
 
-    function registerSubscriber(address publisherContract, address subscriberContract, uint256 threadId, uint256 fee) public returns (bool) {
+    function registerSubscriber(
+        address publisherContract,
+        address subscriberContract,
+        uint256 threadId,
+        uint256 fee
+    ) public returns (bool) {
         // there is probably a minimum amount we should consider, e.g. 21,000 wei
         require(fee > 0, "Fee must be greater than 0");
 
         require(
             subscribers[subscriberContract][publisherContract][threadId] != fee,
-            "Hook already registered"
+            "Subscriber already registered"
         );
 
         subscribers[subscriberContract][publisherContract][threadId] = fee;
 
         owners[subscriberContract] = msg.sender;
 
-        emit SubscriberRegistered(publisherContract, subscriberContract, threadId, fee);
+        emit SubscriberRegistered(
+            publisherContract,
+            subscriberContract,
+            threadId,
+            fee
+        );
 
         return true;
     }
 
-    function updateSubscriber(address publisherContract, address subscriberContract, uint256 threadId, uint256 fee) public returns (bool) {
-        require(owners[subscriberContract] == msg.sender, "Not authorized to update subscriber");
+    function updateSubscriber(
+        address publisherContract,
+        address subscriberContract,
+        uint256 threadId,
+        uint256 fee
+    ) public returns (bool) {
+        require(
+            owners[subscriberContract] == msg.sender,
+            "Not authorized to update subscriber"
+        );
 
         subscribers[subscriberContract][publisherContract][threadId] = fee;
 
-        emit SubscriberUpdated(publisherContract, subscriberContract, threadId, fee);
+        emit SubscriberUpdated(
+            publisherContract,
+            subscriberContract,
+            threadId,
+            fee
+        );
 
         return true;
     }
@@ -357,27 +417,49 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "./IPublisher.sol";
 
 contract Publisher is IPublisher, Ownable {
-    uint256 hookNonce;
+    uint256 public hookNonce;
 
     event Hook(
         uint256 indexed threadId,
         uint256 indexed nonce,
-        bytes32 signature,
-        bytes32 payload
+        uint8 v,
+        bytes32 r,
+        bytes32 s,
+        bytes32 digest,
+        bytes32[] payload
     );
 
-    mapping (uint256 => address) hooks;
+    mapping(uint256 => address) public hooks;
 
-    function fireHook(bytes32 hashedMessage, uint8 v, bytes32 r, bytes32 s) public onlyOwner {
-        emit Hook(1, hookNonce++, signature, payload);
+    function fireHook(
+        bytes32[] memory payload,
+        bytes32 digest,
+        uint256 threadId,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) public onlyOwner {
+        emit Hook(threadId, hookNonce++, v, r, s, digest, payload);
     }
 
-    function addHook(uint256 threadId, address publisherPubKey) public onlyOwner {
+    function addHook(uint256 threadId, address publisherPubKey)
+        public
+        onlyOwner
+    {
         hooks[threadId] = publisherPubKey;
     }
 
-    function verifyEventHook(uint256 threadId, address publisherPubKey) public view override returns (bool) {
+    function verifyEventHook(uint256 threadId, address publisherPubKey)
+        public
+        view
+        override
+        returns (bool)
+    {
         return (hooks[threadId] == publisherPubKey);
+    }
+
+    function getEventHook(uint256 threadId) public view returns (address) {
+        return hooks[threadId];
     }
 }
 ```
@@ -388,39 +470,84 @@ subscriber.sol
 
 pragma solidity >=0.7.0 <0.9.0;
 
+import "@openzeppelin/contracts/access/Ownable.sol";
 import "./ISubscriber.sol";
 
-contract Subscriber is ISubscriber {
-    address[] validPublishers;
+contract Subscriber is ISubscriber, Ownable {
+    event ValueReceived(address user, uint256 amount);
+
+    address[] public validPublishers;
+
+    uint256 public currentNonce;
+
+    uint256 private constant RELAYER_FEE = 0.001 ether;
+    bytes32 private constant DOMAIN_TYPEHASH = keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract,bytes32 salt)");
+    bytes32 private constant DOMAIN_SALT = 0x5db5bd0cd6f41d9d705525bc4773e06c1cdcb68185b4e00b0b26cc7d2e23761d;
+    bytes32 private constant DOMAIN_NAME_HASH = keccak256("Hook");
+    bytes32 private constant DOMAIN_VERSION_HASH = keccak256("1");
+    bytes32 private constant TYPE_HASH = keccak256("Hook(bytes32 payload,uint256 nonce)");
 
     constructor() {
-        validPublishers.push(0xdD4c825203f97984e7867F11eeCc813A036089D1);
+        currentNonce = 1;
     }
 
-    function verifyEventHook(bytes32 hashedMessage, uint8 v, bytes32 r, bytes32 s) public returns (address) {
-        bytes memory prefix = "\x19Ethereum Signed Message:\n32";
-
-        bytes32 prefixedHashMessage = keccak256(abi.encodePacked(prefix, hashedMessage));
-
-        address signer = ecrecover(prefixedHashMessage, v, r, s);
-
-        bool publisherValid = false;
-
-        for (uint i = 0; i < validPublishers.length; i++) {
-            if (validPublishers[i] == signer) {
-                publisherValid = true;
-            }
-        }
-
-        if (publisherValid == true) {
-            executeHookLogic();
-        }
-
-        return publisherValid ? signer : address(0);
+    function addPublisher(address publisherAddress) public onlyOwner {
+        validPublishers.push(publisherAddress);
     }
 
-    function executeHookLogic() internal {
-        // do something in response to hook
+    receive() external payable {
+        emit ValueReceived(msg.sender, msg.value);
+    }
+
+    function verifyHook(
+        bytes32[] memory payload,
+        uint256 nonce,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) public returns (address signer, bytes32 message) {
+        require(nonce > currentNonce, "Obsolete hook detected");
+
+        uint256 chainId;
+
+        assembly {
+            chainId := chainid()
+        }
+
+        bytes32 domainHash = keccak256(
+            abi.encode(
+                DOMAIN_TYPEHASH,
+                DOMAIN_NAME_HASH,
+                DOMAIN_VERSION_HASH,
+                chainId,
+                address(this),
+                DOMAIN_SALT
+            )
+        );
+
+        message = keccak256(abi.encode(payload[0], payload[1], payload[2]));
+
+        bytes32 messageHash = keccak256(abi.encode(TYPE_HASH, message, nonce));
+
+        bytes32 digest = keccak256(
+            abi.encodePacked("\x19\x01", domainHash, messageHash)
+        );
+
+        signer = ecrecover(digest, v, r, s);
+
+        bool isPublisherValid = false;
+
+        for (uint256 i = 0; i < validPublishers.length; i++) {
+            isPublisherValid = isPublisherValid || validPublishers[i] == signer;
+        }
+
+        require(isPublisherValid, "Publisher not valid");
+
+        currentNonce = nonce;
+
+        (bool result, ) = msg.sender.call{value: RELAYER_FEE}("");
+
+        require(result, "Failed to send relayer fee");
     }
 }
 ```
@@ -447,107 +574,41 @@ For this reason, it is recommended to use erc-721 Typed Data Signatures.  In thi
 
 ```js
 const domain = [
-    {name: "name", type: "string" },
-    {name: "version", type: "string"},
-    {name: "chainId", type: "uint256"},
-    { name: "verifyingContract", type: "address" },
-    { name: "salt", type: "bytes32" },
+  { name: "name", type: "string"  },
+  { name: "version", type: "string" },
+  { name: "chainId", type: "uint256" },
+  { name: "verifyingContract", type: "address" },
+  { name: "salt", type: "bytes32" }
 ]
  
 const hook = [
-    {"name": "payload", "type": "string"},
+  { "name": "payload", "type": "string" }
 ]
  
 const domainData = {
-    name: "Name of Publisher Dapp",
-    version: "1",
-    chainId: parseInt(web3.version.network, 10),
-    verifyingContract: "0x123456789abcedf....publisher contract address",
-    salt: "0x123456789abcedf....random hash unique to publisher contract"
+  name: "Name of Publisher Dapp",
+  version: "1",
+  chainId: parseInt(web3.version.network, 10),
+  verifyingContract: "0x123456789abcedf....publisher contract address",
+  salt: "0x123456789abcedf....random hash unique to publisher contract"
 }
  
 const message = {
-    payload: "RLP encoded payload"
+  payload: "RLP encoded payload"
 }
  
 const eip712TypedData = {
-    types: {
-        EIP712Domain: domain,
-        Hook: hook
-    },
-    domain: domainData,
-    primaryType: "Hook",
-    message: message
+  types: {
+    EIP712Domain: domain,
+    Hook: hook
+  },
+  domain: domainData,
+  primaryType: "Hook",
+  message: message
 }
 ```
 
-Verifying in subscriber smart contract:
-
-```js
-contract SubscriberExample {
-    
-    struct EIP712Domain {
-        string  name;
-        string  version;
-        uint256 chainId;
-        address verifyingContract;
-    }
-
-    struct Hook {
-        string payload;
-        uint256 threadId;
-        uint256 nonce;
-    }
-
-    bytes32 constant EIP712DOMAIN_TYPEHASH = keccak256(
-        "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
-    );
-
-    bytes32 constant HOOK_TYPEHASH = keccak256(
-        "Hook(string payload,uint256 threadId,uint256 nonce)"
-    );
-
-    bytes32 DOMAIN_SEPARATOR;
-
-    constructor () public {
-        DOMAIN_SEPARATOR = hash(EIP712Domain({
-            name: "Name of Publisher Dapp",
-            version: '1',
-            chainId: 1,
-            verifyingContract: "0x123456789abcedf....publisher contract address"
-        }));
-    }
-
-    function hash(EIP712Domain eip712Domain) internal pure returns (bytes32) {
-        return keccak256(abi.encode(
-            EIP712DOMAIN_TYPEHASH,
-            keccak256(bytes(eip712Domain.name)),
-            keccak256(bytes(eip712Domain.version)),
-            eip712Domain.chainId,
-            eip712Domain.verifyingContract
-        ));
-    }
-
-    function hash(Hook hook) internal pure returns (bytes32) {
-        return keccak256(abi.encode(
-            HOOK_TYPEHASH,
-            keccak256(bytes(hook.payload)),
-            keccak256(bytes(hook.threadId)),
-            keccak256(bytes(hook.nonce)),
-        ));
-    }
-
-    function verify(Hook hook, uint8 v, bytes32 r, bytes32 s) internal view returns (bool) {
-        bytes32 digest = keccak256(abi.encodePacked(
-            "\x19\x01",
-            DOMAIN_SEPARATOR,
-            hash(hook)
-        ));
-        
-        return ecrecover(digest, v, r, s) == address(0); // should be same s publisher's registered public key
-    }
-}        
-```
+Note: please refer to the unit tests in the reference implementation repository for an example of how a hook event should be constructured properly by the pubisher.
 
 Replay attacks can also occur on the same network that the event hook was fired, by simply re-broadcasting an event hook that was already broadcast previously.  For this reason, subscriber contracts should check that a nonce is included in the event hook being received, and record the nonce in the contract's state.  If the hook nonce is not valid, or has already been recorded, the transaction should revert.
 
@@ -557,4 +618,6 @@ There is also the possibilty to leverage the `chainId` for more than preventing 
 
 ## Copyright
 
-Copyright and related rights waived via CC0.
+Copyright and related rights according to MIT license.
+
+ ^ (ctrl-c / ctrl-v)
