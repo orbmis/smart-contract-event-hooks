@@ -11,8 +11,6 @@ contract Subscriber is ISubscriber, Ownable {
 
     address[] public validPublishers;
 
-    bool stateToggleSwitch;
-
     uint256 public currentNonce;
 
     uint256 private constant RELAYER_FEE = 0.001 ether;
@@ -33,7 +31,6 @@ contract Subscriber is ISubscriber, Ownable {
         keccak256("Hook(bytes32 payload,uint256 nonce)");
 
     constructor() {
-        stateToggleSwitch = false;
         currentNonce = 1;
     }
 

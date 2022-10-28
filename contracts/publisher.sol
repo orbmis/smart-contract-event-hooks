@@ -6,7 +6,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "./IPublisher.sol";
 
 contract Publisher is IPublisher, Ownable {
-    uint256 hookNonce;
+    uint256 public hookNonce;
 
     event Hook(
         uint256 indexed threadId,
