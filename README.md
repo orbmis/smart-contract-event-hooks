@@ -3,7 +3,7 @@ eip: <to be assigned>
 title: Smart Contract Event Hooks Standard
 description: Format that allows contracts to semi-autonoumously respond to events emitted by other contracts
 author: Simon Brown (@orbmis)
-discussions-to: <URL>
+discussions-to: https://ethereum-magicians.org/t/idea-smart-contract-event-hooks-standard/11503
 status: Draft
 type: Standards Track
 category: ERC
@@ -13,7 +13,7 @@ requires: erc-712
 
 ## Abstract
 
-This ERC proposes contract standard to allow for creating "hooks" that facilitate smart contract function being called automatically in response to a trigger fired by another contract, by using a public relayer network as a messaging bus.
+This EIP proposes a contract standard to allow for creating "hooks" that facilitate smart contract function being called automatically in response to a trigger fired by another contract, by using a public relayer network as a messaging bus.
 
 It relies on two interfaces, one for a publisher contract and one for a subscriber contract.  The publisher contract emits events that are picked up by "relayers", who are independent entities that subscribe to hook events on publisher contracts, and call respective functions on subscriber contacts whenever a hook event is fired by the publisher contract.  When a relayer calls the respective subscriber's hook function with the details of the hook event emitted by the publisher contract, they are paid a fee by the subscriber.  Both the publisher and subscriber contracts are registered in a central registry smart contract that relayers can use to discover hooks.
 
@@ -614,7 +614,7 @@ Replay attacks can also occur on the same network that the event hook was fired,
 
 It is worth noting that the `chainId` event topic should also be used to prevent cross chain replay attacks, in the case that a dapp is deployed on multiple networks.
 
-There is also the possibilty to leverage the `chainId` for more than preventing replay attacks, but also for accepting messages from other chains.
+There is also the possibility to leverage the `chainId` for more than preventing replay attacks, but also for accepting messages from other chains.
 
 ## Copyright
 
