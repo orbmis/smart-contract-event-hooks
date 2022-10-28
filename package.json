@@ -15,7 +15,7 @@
     "type": "git",
     "url": "https://github.com/orbmis/hooks"
   },
-  "license": "MIT",
+  "license": "CC0",
   "devDependencies": {
     "@openzeppelin/contracts": "^4.7.1",
     "chai": "^4.3.6",

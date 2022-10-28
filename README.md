@@ -618,6 +618,6 @@ There is also the possibilty to leverage the `chainId` for more than preventing 
 
 ## Copyright
 
-Copyright and related rights according to MIT license.
+Copyright and related rights waived via CC0.
 
  ^ (ctrl-c / ctrl-v)
