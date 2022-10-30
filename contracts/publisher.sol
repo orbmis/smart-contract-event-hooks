@@ -28,7 +28,9 @@ contract Publisher is IPublisher, Ownable {
         bytes32 r,
         bytes32 s
     ) public onlyOwner {
-        emit Hook(threadId, hookNonce++, v, r, s, digest, payload);
+        hookNonce++;
+
+        emit Hook(threadId, hookNonce, v, r, s, digest, payload);
     }
 
     function addHook(uint256 threadId, address publisherPubKey)

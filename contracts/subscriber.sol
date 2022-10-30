@@ -8,7 +8,8 @@ import "./ISubscriber.sol";
 contract Subscriber is ISubscriber, Ownable {
     event ValueReceived(address user, uint256 amount);
 
-    address[] public validPublishers;
+    // mapping of publisher address to threadId to nonce
+    mapping(address => mapping(uint256 => uint256)) public validPublishers;
 
     uint256 public currentNonce;
 
@@ -33,8 +34,12 @@ contract Subscriber is ISubscriber, Ownable {
         currentNonce = 1;
     }
 
-    function addPublisher(address publisherAddress) public onlyOwner {
-        validPublishers.push(publisherAddress);
+    function addPublisher(address publisherAddress, uint256 threadId) public onlyOwner {
+        validPublishers[publisherAddress][threadId] = 1;
+    }
+
+    function getPublisherNonce(address publisherAddress, uint256 threadId) public view returns (uint256) {
+        return validPublishers[publisherAddress][threadId];
     }
 
     receive() external payable {
@@ -43,25 +48,18 @@ contract Subscriber is ISubscriber, Ownable {
 
     function verifyHook(
         bytes32[] memory payload,
+        uint256 threadId,
         uint256 nonce,
         uint8 v,
         bytes32 r,
         bytes32 s
     ) public returns (address signer, bytes32 message) {
-        require(nonce > currentNonce, "Obsolete hook detected");
-
-        uint256 chainId;
-
-        assembly {
-            chainId := chainid()
-        }
-
         bytes32 domainHash = keccak256(
             abi.encode(
                 DOMAIN_TYPEHASH,
                 DOMAIN_NAME_HASH,
                 DOMAIN_VERSION_HASH,
-                chainId,
+                block.chainid,
                 address(this),
                 DOMAIN_SALT
             )
@@ -77,16 +75,16 @@ contract Subscriber is ISubscriber, Ownable {
 
         signer = ecrecover(digest, v, r, s);
 
-        bool isPublisherValid = false;
+        bool isPublisherValid = validPublishers[signer][threadId] != 0;
 
-        for (uint256 i = 0; i < validPublishers.length; i++) {
-            isPublisherValid = isPublisherValid || validPublishers[i] == signer;
-        }
-
+        // checks
+        require(nonce > currentNonce, "Obsolete hook detected");
         require(isPublisherValid, "Publisher not valid");
 
+        // effects
         currentNonce = nonce;
 
+        // interactions
         (bool result, ) = msg.sender.call{value: RELAYER_FEE}("");
 
         require(result, "Failed to send relayer fee");

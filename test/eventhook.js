@@ -319,16 +319,16 @@ contract('Subscriber', (accounts) => {
       value: web3.utils.toWei('1', 'ether'),
     })
 
-    await subscriberInstance.addPublisher(accounts[1])
+    await subscriberInstance.addPublisher(accounts[1], 1)
 
-    const publishersCheck = await subscriberInstance.validPublishers.call(0)
+    const publishersCheck = await subscriberInstance.getPublisherNonce(accounts[1], 1)
 
-    assert.equal(publishersCheck, accounts[1])
+    assert.equal(publishersCheck, 1)
   })
 
   it('should prevent others from adding publishers', async function () {
     try {
-      await subscriberInstance.addPublisher(accounts[2], { from: accounts[1] })
+      await subscriberInstance.addPublisher(accounts[2], 1, { from: accounts[1] })
     } catch (e) {
       assert.include(e.message, 'Ownable: caller is not the owner')
     }
@@ -337,7 +337,7 @@ contract('Subscriber', (accounts) => {
   it('should verify incoming hooks', async function () {
     const sig = await getTypedData(2, subscriberInstance.address, accounts[1])
 
-    await subscriberInstance.verifyHook(params, 2, sig.v, sig.r, sig.s)
+    await subscriberInstance.verifyHook(params, 1, 2, sig.v, sig.r, sig.s)
 
     const nonceCheck = await subscriberInstance.currentNonce.call()
 
@@ -349,7 +349,7 @@ contract('Subscriber', (accounts) => {
 
     const sig = await getTypedData(4, subscriberInstance.address, accounts[1])
 
-    const txResult = await subscriberInstance.verifyHook(params, 4, sig.v, sig.r, sig.s)
+    const txResult = await subscriberInstance.verifyHook(params, 1, 4, sig.v, sig.r, sig.s)
 
     const balanceAfter = await web3.eth.getBalance(accounts[0])
 
@@ -368,7 +368,7 @@ contract('Subscriber', (accounts) => {
 
   it('should prevent against re-entrancy and replay attacks', async function () {
     try {
-      await subscriberInstance.verifyHook(params, 4, v, r, s)
+      await subscriberInstance.verifyHook(params, 1, 4, v, r, s)
     } catch (e) {
       assert.include(e.message, 'Obsolete hook detected')
     }
@@ -378,7 +378,7 @@ contract('Subscriber', (accounts) => {
     const sig = await getTypedData(2, subscriberInstance.address, accounts[4])
 
     try {
-      await subscriberInstance.verifyHook(params, 2, sig.v, sig.r, sig.s)
+      await subscriberInstance.verifyHook(params, 1, 2, sig.v, sig.r, sig.s)
     } catch (e) {
       assert.include(e.message, 'Obsolete hook detected')
     }
