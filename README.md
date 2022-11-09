@@ -7,13 +7,15 @@ discussions-to: https://ethereum-magicians.org/t/idea-smart-contract-event-hooks
 status: Draft
 type: Standards Track
 category: ERC
-created: 2022-10-28
+created: 2022-11-09
 requires: erc-712
 ---
 
 ## Abstract
 
-This EIP proposes a contract standard to allow for creating "hooks" that facilitate smart contract function being called automatically in response to a trigger fired by another contract, by using a public relayer network as a messaging bus.
+This EIP proposes a smart contract standard to allow for creating "hooks" that facilitate a smart contract function being called automatically in response to a trigger fired by another contract, by using a public relayer network as a messaging bus.
+
+While there are many similar solutions in existence already, this proposal describes a simple yet powerful primitive that can be employed within many applications in an open, permissionless and decentralized manner.
 
 It relies on two interfaces, one for a publisher contract and one for a subscriber contract.  The publisher contract emits events that are picked up by "relayers", who are independent entities that subscribe to hook events on publisher contracts, and call respective functions on subscriber contacts whenever a hook event is fired by the publisher contract.  When a relayer calls the respective subscriber's hook function with the details of the hook event emitted by the publisher contract, they are paid a fee by the subscriber.  Both the publisher and subscriber contracts are registered in a central registry smart contract that relayers can use to discover hooks.
 
@@ -21,9 +23,9 @@ It relies on two interfaces, one for a publisher contract and one for a subscrib
 
 There exists a number of use cases that require some off-chain party to monitor the chain and respond to on-chain events by broadcasting a transaction.  Such cases usually require some off-chain process to run alongside an Ethereum node, in order to subscribe to events via a web socket connection, and perform some logic in response to an event, by broadcasting a respective transaction to the network.  For some use-cases, this may require an Ethereum node and an open websocket connection to some long-running process that may only be used infrequently, resulting in a sub-optimal use of resources.
 
-This proposal would allow for a smart contract to contain the logic it needs to respond to events without having to store that logic in some off-chain process.  The smart contract can subscribe to events fired by other smart contracts and would only execute the required logic when it's needed. This method would suit any contract logic that does not require off-chain computation, but requires an off-chain process to monitor chain state in order to call one of it's functions in response response.
+This proposal would allow for a smart contract to contain the logic it needs to respond to events without having to store that logic in some off-chain process.  The smart contract can subscribe to events fired by other smart contracts and would only execute the required logic when its needed. This method would suit any contract logic that does not require off-chain computation, but requires an off-chain process to monitor chain state in order to call one of its functions in response.
 
-Firing hooks from publisher smart contracts still requires an off-chain process to sign a hook payload and broadcast a transaction to execute a function.  To put it another way, somebody has to pull the trigger on the publisher contract, by submitting a transaction to the publisher contract in order to emit the hook event.  This is how it works today, and this proposal doesn't change that.  Where it does offer an improvement, is that each subscriber no longer needs it's own dedicated off-chain process for monitoring and responding to these events.  Instead, a single incentivized relayer can subscribe to many different events on behalf of multiple consumer contracts.
+Firing hooks from publisher smart contracts still requires some off-chain impetus.  To put it another way, somebody has to pull the trigger on the publisher contract, by submitting a transaction to the publisher contract in order to emit the hook event.  This is how it works today, and this proposal doesn't change that.  Where it does offer an improvement, is that each subscriber no longer needs its own dedicated off-chain process for monitoring and responding to these events.  Instead, a single incentivized relayer can subscribe to many different events on behalf of multiple consumer contracts.
 
 Thanks to innovations such as [web3 webhooks](https://moralis.io/web3-webhooks-the-ultimate-guide-to-blockchain-webhooks/), [web3 actions](https://blog.tenderly.co/new-features-web3-actions-war-rooms-sandbox-debugger-extension/), or [hal.xyz](hal.xyz) creating a relayer is easier than ever.
 
@@ -37,17 +39,27 @@ For example, Maker uses the [medianizer](https://docs.makerdao.com/smart-contrac
 
 AMM liquidity pools could fire a hook event whenever liquidity is added or removed.  This could allow a subscriber smart contracts to add or remove liquidity once the total pool liquidity reaches a certain point.
 
+AMMs can fire a hook whenever there is a trade within a trading pair, emitting the time-weighted-price-oracle update via an hook event.  Subscribers can use this to create an automated Limit-Order-Book contract to buy/sell tokens once an asset's spot price breaches a pre-specified threshold.
+
+### DAO Voting
+
+Hook events can be emmitted by a DAO governance contarct to signal that a proposal has been published, voted on, carried or vetoed, and would allow any subscriber contract to automatically respond accordingly.
+
+### Briding
+
+This method can be used to form a very simple cross chain bridge based on locking + releasing / minting + burning.
+
 ## Rationale
 
-The rationale for this design is that it allows smart contract developers to write contract logic that listens and responds to events fired in other smart contracts, without requiring them to run some dedicated off-chain process to achieve this.  This best suits any simple smart contract logic that runs relatively infrequently in reponse to events in other contracts.
+The rationale for this design is that it allows smart contract developers to write contract logic that listens and responds to events fired in other smart contracts, without requiring them to run some dedicated off-chain process to achieve this.  This best suits any simple smart contract logic that runs relatively infrequently in response to events in other contracts.
 
 This improves on the existing solutions to achieve a pub/sub design pattern. To elaborate: a number of service providers currently offer "webhooks" as a way to subscribe to events emitted by smart contracts, by having some API endpoint called when the events are emitted, or alternatively offer some serverless feature that can be triggered by some smart contract event.  This approach works very well, but it does require that some API endpoint or serverless function be always available, which may require some dedicated server / process, which in turn will need to have some private key, and some amount of ETH in order to re-broadcast transactions.
 
 This approach offers a more suitable alternative for when an "always-on" server instance is not desirable, e.g. in the case that it will be called infrequently.
 
-This approach is similar in some ways to the erc-777 standard, which defines 'Hooks' that are fired when a contract receives erc-20 tokens, however this appraoch is a more generalized and scalable approach that allows hooks to be fired an any event, for any reason.
+This approach is similar in some ways to the erc-777 standard, which defines 'Hooks' that are fired when a contract receives erc-20 tokens, however this approach is a more generalized and scalable approach that allows hooks to be fired on any event, for any reason.
 
-This proposal incorporates a decentralised market-driven relay network, and this decision is based on the fact that this is a highly scalable approach.  Conversely, it is possible to implement this functionality without resorting to a market-driven approach, by simply defining a standard for contract to allow other contracts to subscribe directly.  That approach is conceptually simpler, but has it's drawbacks, in so far as it requires a publisher contract to record subscribers in it's own state, creating an overhead for data management, upgradeability etc.  That approach would also require the publisher to call the subscriber contract's `Hook` function on each subscriver contract, which will incur potentially significant gas costs for the publisher contract, and would be a vector for denial of service attacks.
+This proposal incorporates a decentralized market-driven relay network, and this decision is based on the fact that this is a highly scalable approach.  Conversely, it is possible to implement this functionality without resorting to a market-driven approach, by simply defining a standard for contract to allow other contracts to subscribe directly.  That approach is conceptually simpler, but has its drawbacks, in so far as it requires a publisher contract to record subscribers in its own state, creating an overhead for data management, upgradeability etc.  That approach would also require the publisher to call the subscriber contract's `Hook` function on each subscriber contract, which will incur potentially significant gas costs for the publisher contract, and would be a vector for denial of service attacks.
 
 ## Specification
 
@@ -80,7 +92,7 @@ To register a subscriber to a hook, the `registerSubscriber` function **MUST** b
  - uint256 - the chain id that the subscriber wants updates on
  - uint256 - the address of the token that the fee will be paid in or 0x0 for the chain's native asset (e.g. ETH)
 
- Note that while the chain id and the token address were not included in the original version of the spec, the simple addition of these two parameters allows for leveraging the relayers for cross chain messages, should the subcriber wish to do this, and allows to for payment in various tokens.
+ Note that while the chain id and the token address were not included in the original version of the spec, the simple addition of these two parameters allows for leveraging the relayers for cross chain messages, should the subscriber wish to do this, and allows for payment in various tokens.
 
 ### Updating a subscriber
 
@@ -92,12 +104,14 @@ A publisher contract **SHOULD** emit a hook event from at least one function. Th
 
  - uint256 (indexed) - threadId
  - uint256 (indexed) - nonce
- - uint8 - v
- - uint8 - r
- - uint8 - s
  - bytes32[] - payload
+ - bytes32 - r
+ - bytes32 - s
+ - uint8 - v
 
-The signature **MUST** be based as arguments to the function that is emitting the `Hook` event, and this **MUST** originate from an EOA (obviously signatures can't be created on chain).  The payload **MAY** be passed to the function firing the event or **MAY** be generated by the contract itself, but the signature **MUST** sign a hash of the payload, and it is strongly recommended to use the erc-712 standard as described in the "Replay Attacks" section below.  This signature **SHOULD** be verified by the subscribers to ensure they are getting authentic events. The signature **MUST** correspond to the public key that was registered with the event.
+ The function in the publisher contract that emits the `Hook` event **MAY** be passed a signature from an EOA that calls the function, and this signature **SHOULD** be verified by the subscribers contracts.  The publisher contract **MAY** emit a `Hook` event without a signature, which allows the `Hook` event to be triggered by a function call from ANY EOA or external contract, and allows the payload to be created dynamically within the publisher contract.  In this case the `Hook` event will contain a signature where `r = 0x`, `s = 0x` and `v = 0`, and subsequently the subscriber contract **SHOULD** call the `verifyEventHook` function on the publisher contract to verify that the received Hook payload is valid.
+
+The payload **MAY** be passed to the function firing the event or **MAY** be generated by the contract itself, but if a signature is provided, it **MUST** sign a hash of the payload, and it is strongly recommended to use the erc-712 standard as described in the "Replay Attacks" section below.  This signature **SHOULD** be verified by the subscribers to ensure they are getting authentic events. The signature **MUST** correspond to the public key that was registered with the event.
 
 The payload is encoded as an array of bytes32.  The subscriber smart contract **SHOULD** convert the bytes32 array into the required data type.  For example, if the payload is a snark proof, the actual payload might look something like:
 
@@ -124,11 +138,13 @@ input[0] = uint256(bytes32(payload[8]));
 
 Relayers are independent parties that listen to `Hook` events on publisher smart contracts.  Relayers retrieve a list of subscribers for different hooks from the registry, and listen for hook events being fired on the publisher contracts.  Once a hook event has been fired by a publisher smart contract, relayers can decide to relay the hook event's payload and signature to the subscriber contracts by broadcasting a transaction that calls the subscriber contract's `executeHook` function.  Relayers are incentivised to do this because it is expected that the hook function will remunerate them with ETH, or potentially some other asset.
 
-Relayers **SHOULD** simulate the transaction locally before broadcasting it to make sure that the contract has sufficient balance for payment of the fee.  Subscriber smart contracts are incentivised to maintain a sufficient balance to pay for hook events, because not maintaining a sufficient balance could cause relayers to blocklist them. Note that relayer blocklists are not part of the specification, but are logical likelyhood.
+Relayers **SHOULD** simulate the transaction locally before broadcasting it to make sure that the contract has sufficient balance for payment of the fee.  This requires subscriber contracts to maintain a balance of ETH or some other token in order to provision payment of relayer fees.  A subscriber contract **MAY** decide to revert a transaction based on some logic, which subsequently allows the subscriber contract to conditionally respond to events, depending on the data in the payload. In this case the relayer will simulate the transaction locally and determine not to relay the Hook event to the publisher contract.
 
 ### Verifying a hook event
 
 The `executeHook` function of the subscriber contracts **SHOULD** include logic to ensure that they are retrieving authentic events. To do this, subscriber contracts **SHOULD** create a hash of the required parameters, and **SHOULD** verify that the signature in the hook event is valid against the derived hash and the publisher's public key (see the erc-712 example for reference).  The hook function **SHOULD** also verify the nonce of the hook event and record it internally, in order to prevent replay attacks.  For optimal security, the subscriber contract **MAY** call the `verifyHookEvent` on the publisher contract in order to verify that the hook event is valid.  The publisher smart contract **MAY** implement the `verifyHookEvent`, which accepts the nonce of a Hook event, and checks it against a mapping of `hookId => nonce`.  The publisher contract **MAY** store every `Hook` event it emits in this mapping.
+
+Note that in the case that the Hook event does not contain a signature, the subscriber contract **MUST** call the `verifyHookEvent` function on the publisher contract in order to verify the Hook event is valid.
 
 ### Reference Implementation
 
@@ -560,15 +576,17 @@ It is imperative that subscriber contracts trust the publisher contracts not to 
 
 ### Front-running attacks
 
-It is important for publishers and subscribers of hooks to realise that it is possible for a relayer to relay hook events before they are broadcast by examining the originating transaction in the mempool.  The normal flow is for the originating transaction to call a function in the publisher smart contract which in turn fires an event which is then picked up by relayers.  Competitive relayers will observe that it is possible to pluck the signature from the originating transaction from the mempool and simply relay it to subscriber contracts before the originating transaction has been actually included in a block.  In fact, it is possible that the subscriber contracts process the event before the originating transaction is processed, based purely on gas fee dynamics.
+It is important for publishers and subscribers of hooks to realize that it is possible for a relayer to relay hook events before they are broadcast by examining the originating transaction in the mempool.  The normal flow is for the originating transaction to call a function in the publisher smart contract which in turn fires an event which is then picked up by relayers.  Competitive relayers will observe that it is possible to pluck the signature from the originating transaction from the mempool and simply relay it to subscriber contracts before the originating transaction has been actually included in a block.  In fact, it is possible that the subscriber contracts process the event before the originating transaction is processed, based purely on gas fee dynamics.
 
-To this end, publishers must bear in mind that the transaction that fires hooks should not affect significant state changes, and that ideally any state changes should be finalised in a block before the transaction that fires the hook event is even broadcast.  The hook event should really only be used as a P2P messaging bus, rather than being used for state changes.  The two concerns should be separate. That being said, it is possible to mitigate against this sort of front-running risk by implementing the `verifyHook` function in the publisher smart contract, which will be called by subscriber contracts to verify that the hook they have been notified of has indeed been triggered by the publisher smart contract, and that the transaction that triggered the hook event has been finalised.
+To this end, publishers must bear in mind that the transaction that fires hooks should not affect significant state changes, and that ideally any state changes should be finalized in a block before the transaction that fires the hook event is even broadcast.  The hook event should really only be used as a P2P messaging bus, rather than being used for state changes.  The two concerns should be separate. That being said, it is possible to mitigate against this sort of front-running risk by implementing the `verifyHook` function in the publisher smart contract, which will be called by subscriber contracts to verify that the hook they have been notified of has indeed been triggered by the publisher smart contract, and that the transaction that triggered the hook event has been finalized.
 
-Another risk from front-running affects relayers, whereby the relayer's transactions to the subscriber contracts can be front-run by generalized MEV searchers in the mempool.  It is likely that this sort of MEV capture will occurr in the public mempool, and therefore it is advised that relayers use private channels to block builders to mitigate against this issue.  By broadcasting transcations to a segrated mempool, relayers protect themselves from front-running by generalized MEV bots, but their transactions can still fail due to competition from other relayers.  If two or more relayers decide to start relaying hook events from the same publisher, than the relay transactions with the highest gas price will be executed before the others.  This will result in the other relayer's transactions failing on-chain, by being included later in the same block.  For now, there are certain transaction optimisation services that will prevent transactions from failing on-chain, which will offer a solution to this problem, though this is out-of-scope for this document.  A future iteration of this proposal may well include the option for trusted relayers, who can enter into an on-chain enforceable agreement with subscribers, which shoudl reduce the race-to-the-bottom competitive gas fee issue.
+Another risk from front-running affects relayers, whereby the relayer's transactions to the subscriber contracts can be front-run by generalized MEV searchers in the mempool.  It is likely that this sort of MEV capture will occur in the public mempool, and therefore it is advised that relayers use private channels to block builders to mitigate against this issue.  By broadcasting transactions to a segregated mempool, relayers protect themselves from front-running by generalized MEV bots, but their transactions can still fail due to competition from other relayers.  If two or more relayers decide to start relaying hook events from the same publisher, then the relay transactions with the highest gas price will be executed before the others.  This will result in the other relayer's transactions failing on-chain, by being included later in the same block.  For now, there are certain transaction optimization services that will prevent transactions from failing on-chain, which will offer a solution to this problem, though this is out-of-scope for this document.  A future iteration of this proposal may well include the option for trusted relayers, who can enter into an on-chain enforceable agreement with subscribers, which should reduce the race-to-the-bottom competitive gas fee issue.
+
+In order to cultivate and maintain a reliable relayer market, it is recommended that where possible, a subscriber contract implements a logical condition that checks that the gas price of the transaction that is calling the `verifyHook` function to ensure that the gas price does not effectively reduce the fee to zero.  This would require that the smart contract have some knowledge of the approximate gas used by the `verifyHook` function, and checks that the condition `minFee => fee - (gasPrice * gasUsed)`.  This will mitigate against competitive bidding that would drive the effective fee to zero, by ensuring that there is some minimum fee below which the effective fee is not allowed to drop.  This would mean that the highest gas price that can be paid before the transaction reverts is `fee - minFee + ε` where `ε ~= 1 gwei`.  This will require careful estimation of the gas cost of the `verifyHook` function and an awareness that the gas used may change over time as the contract's state changes.
 
 ### Replay attacks
 
-It is advised to use the erc-712 standard in order to prevent cross network replay attacks, where the same contract deployed on more than one network can have it's hook events pushed to subscribers on other networks, e.g. a publisher contract on Polygon can fire an hook event that could be relayed to a subscriber contract on Gnosis Chain.  Whereas the keys used to sign the hook events should ideally be unique, in reality this may not always be the case.
+It is advised to use the erc-712 standard in order to prevent cross network replay attacks, where the same contract deployed on more than one network can have its hook events pushed to subscribers on other networks, e.g. a publisher contract on Polygon can fire an hook event that could be relayed to a subscriber contract on Gnosis Chain.  Whereas the keys used to sign the hook events should ideally be unique, in reality this may not always be the case.
 
 For this reason, it is recommended to use erc-721 Typed Data Signatures.  In this case the off-chain process that initiates the hook should create the signature according to the following data structure:
 
@@ -608,7 +626,7 @@ const eip712TypedData = {
 }
 ```
 
-Note: please refer to the unit tests in the reference implementation repository for an example of how a hook event should be constructured properly by the pubisher.
+Note: please refer to the unit tests in the reference implementation repository for an example of how a hook event should be constructed properly by the publisher.
 
 Replay attacks can also occur on the same network that the event hook was fired, by simply re-broadcasting an event hook that was already broadcast previously.  For this reason, subscriber contracts should check that a nonce is included in the event hook being received, and record the nonce in the contract's state.  If the hook nonce is not valid, or has already been recorded, the transaction should revert.
 
