@@ -1,6 +1,6 @@
 ---
-eip: <to be assigned>
-title: Smart Contract Event Hooks Standard
+eip: 5902
+title: Smart Contract Event Hooks
 description: Format that allows contracts to semi-autonoumously respond to events emitted by other contracts
 author: Simon Brown (@orbmis)
 discussions-to: https://ethereum-magicians.org/t/idea-smart-contract-event-hooks-standard/11503
@@ -8,7 +8,7 @@ status: Draft
 type: Standards Track
 category: ERC
 created: 2022-11-09
-requires: erc-712
+requires: 712
 ---
 
 ## Abstract
@@ -27,13 +27,13 @@ This proposal would allow for a smart contract to contain the logic it needs to 
 
 Firing hooks from publisher smart contracts still requires some off-chain impetus.  To put it another way, somebody has to pull the trigger on the publisher contract, by submitting a transaction to the publisher contract in order to emit the hook event.  This is how it works today, and this proposal doesn't change that.  Where it does offer an improvement, is that each subscriber no longer needs its own dedicated off-chain process for monitoring and responding to these events.  Instead, a single incentivized relayer can subscribe to many different events on behalf of multiple consumer contracts.
 
-Thanks to innovations such as [web3 webhooks](https://moralis.io/web3-webhooks-the-ultimate-guide-to-blockchain-webhooks/), [web3 actions](https://blog.tenderly.co/new-features-web3-actions-war-rooms-sandbox-debugger-extension/), or [hal.xyz](hal.xyz) creating a relayer is easier than ever.
+Thanks to innovations such as web3 webhooks from Moralis, web3 actions from Tenderly, or hal.xyz creating a relayer is easier than ever.
 
 Examples of use cases that would benefit from this scheme include:
 
 ### Collateralised lending protocols
 
-For example, Maker uses the [medianizer](https://docs.makerdao.com/smart-contract-modules/oracle-module/median-detailed-documentation) smart contract which maintains a whitelist of price feed contracts which are allowed to post price updates. Every time a new price update is received, the median of all feed prices is re-computed and the medianized value is updated.  In this case, the medianizer smart contract could fire a hook event that would allow subscriber contracts to decide to re-collateralize their positions.
+For example, Maker uses the "medianizer" smart contract which maintains a whitelist of price feed contracts which are allowed to post price updates. Every time a new price update is received, the median of all feed prices is re-computed and the medianized value is updated.  In this case, the medianizer smart contract could fire a hook event that would allow subscriber contracts to decide to re-collateralize their positions.
 
 ### Automated market makers
 
@@ -45,29 +45,13 @@ AMMs can fire a hook whenever there is a trade within a trading pair, emitting t
 
 Hook events can be emmitted by a DAO governance contarct to signal that a proposal has been published, voted on, carried or vetoed, and would allow any subscriber contract to automatically respond accordingly.
 
-### Briding
-
-This method can be used to form a very simple cross chain bridge based on locking + releasing / minting + burning.
-
-## Rationale
-
-The rationale for this design is that it allows smart contract developers to write contract logic that listens and responds to events fired in other smart contracts, without requiring them to run some dedicated off-chain process to achieve this.  This best suits any simple smart contract logic that runs relatively infrequently in response to events in other contracts.
-
-This improves on the existing solutions to achieve a pub/sub design pattern. To elaborate: a number of service providers currently offer "webhooks" as a way to subscribe to events emitted by smart contracts, by having some API endpoint called when the events are emitted, or alternatively offer some serverless feature that can be triggered by some smart contract event.  This approach works very well, but it does require that some API endpoint or serverless function be always available, which may require some dedicated server / process, which in turn will need to have some private key, and some amount of ETH in order to re-broadcast transactions.
-
-This approach offers a more suitable alternative for when an "always-on" server instance is not desirable, e.g. in the case that it will be called infrequently.
-
-This approach is similar in some ways to the erc-777 standard, which defines 'Hooks' that are fired when a contract receives erc-20 tokens, however this approach is a more generalized and scalable approach that allows hooks to be fired on any event, for any reason.
-
-This proposal incorporates a decentralized market-driven relay network, and this decision is based on the fact that this is a highly scalable approach.  Conversely, it is possible to implement this functionality without resorting to a market-driven approach, by simply defining a standard for contract to allow other contracts to subscribe directly.  That approach is conceptually simpler, but has its drawbacks, in so far as it requires a publisher contract to record subscribers in its own state, creating an overhead for data management, upgradeability etc.  That approach would also require the publisher to call the subscriber contract's `Hook` function on each subscriber contract, which will incur potentially significant gas costs for the publisher contract, and would be a vector for denial of service attacks.
-
 ## Specification
 
 The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in RFC 2119.
 
 ### Registering a Publisher
 
-Both the publisher and subscriber contracts **MUST** register in a specific register contract, similarly to how smart contracts register an interface in the erc-1820 contract.
+Both the publisher and subscriber contracts **MUST** register in a specific register contract, similarly to how smart contracts register an interface in the [EIP-1820](https://eips.ethereum.org/EIPS/eip-1820.md) contract.
 
 To register a hook in a publisher contract, the `registerHook` function **MUST** be called on the registry contract.  The parameters that need to be supplied are:
 
@@ -111,7 +95,7 @@ A publisher contract **SHOULD** emit a hook event from at least one function. Th
 
  The function in the publisher contract that emits the `Hook` event **MAY** be passed a signature from an EOA that calls the function, and this signature **SHOULD** be verified by the subscribers contracts.  The publisher contract **MAY** emit a `Hook` event without a signature, which allows the `Hook` event to be triggered by a function call from ANY EOA or external contract, and allows the payload to be created dynamically within the publisher contract.  In this case the `Hook` event will contain a signature where `r = 0x`, `s = 0x` and `v = 0`, and subsequently the subscriber contract **SHOULD** call the `verifyEventHook` function on the publisher contract to verify that the received Hook payload is valid.
 
-The payload **MAY** be passed to the function firing the event or **MAY** be generated by the contract itself, but if a signature is provided, it **MUST** sign a hash of the payload, and it is strongly recommended to use the erc-712 standard as described in the "Replay Attacks" section below.  This signature **SHOULD** be verified by the subscribers to ensure they are getting authentic events. The signature **MUST** correspond to the public key that was registered with the event.
+The payload **MAY** be passed to the function firing the event or **MAY** be generated by the contract itself, but if a signature is provided, it **MUST** sign a hash of the payload, and it is strongly recommended to use the [EIP-712](https://eips.ethereum.org/EIPS/eip-712.md) standard as described in the "Replay Attacks" section below.  This signature **SHOULD** be verified by the subscribers to ensure they are getting authentic events. The signature **MUST** correspond to the public key that was registered with the event.
 
 The payload is encoded as an array of bytes32.  The subscriber smart contract **SHOULD** convert the bytes32 array into the required data type.  For example, if the payload is a snark proof, the actual payload might look something like:
 
@@ -142,31 +126,37 @@ Relayers **SHOULD** simulate the transaction locally before broadcasting it to m
 
 ### Verifying a hook event
 
-The `executeHook` function of the subscriber contracts **SHOULD** include logic to ensure that they are retrieving authentic events. To do this, subscriber contracts **SHOULD** create a hash of the required parameters, and **SHOULD** verify that the signature in the hook event is valid against the derived hash and the publisher's public key (see the erc-712 example for reference).  The hook function **SHOULD** also verify the nonce of the hook event and record it internally, in order to prevent replay attacks.  For optimal security, the subscriber contract **MAY** call the `verifyHookEvent` on the publisher contract in order to verify that the hook event is valid.  The publisher smart contract **MAY** implement the `verifyHookEvent`, which accepts the nonce of a Hook event, and checks it against a mapping of `hookId => nonce`.  The publisher contract **MAY** store every `Hook` event it emits in this mapping.
+The `executeHook` function of the subscriber contracts **SHOULD** include logic to ensure that they are retrieving authentic events. To do this, subscriber contracts **SHOULD** create a hash of the required parameters, and **SHOULD** verify that the signature in the hook event is valid against the derived hash and the publisher's public key (see the [EIP-712](https://eips.ethereum.org/EIPS/eip-712.md) example for reference).  The hook function **SHOULD** also verify the nonce of the hook event and record it internally, in order to prevent replay attacks.  For optimal security, the subscriber contract **MAY** call the `verifyHookEvent` on the publisher contract in order to verify that the hook event is valid.  The publisher smart contract **MAY** implement the `verifyHookEvent`, which accepts the nonce of a Hook event, and checks it against a mapping of `hookId => nonce`.  The publisher contract **MAY** store every `Hook` event it emits in this mapping.
 
 Note that in the case that the Hook event does not contain a signature, the subscriber contract **MUST** call the `verifyHookEvent` function on the publisher contract in order to verify the Hook event is valid.
 
-### Reference Implementation
+### Interfaces
 
 IRegistry.sol
+
 ```js
 // SPDX-License-Identifier: GPL-3.0
 
 pragma solidity >=0.7.0 <0.9.0;
 
 /// @title IRegistry
-/// @dev Implements a registry contract
+/// @dev Implements the registry contract
 interface IRegistry {
-
     /// @dev Registers a new hook event by a publisher
     /// @param publisherContract The address of the publisher contract
     /// @param threadId The id of the thread these hook events will be fired on
-    function registerHook(address publisherContract, uint256 threadId) external returns (bool);
+    /// @return Returns true if the hook is successfully registered
+    function registerHook(address publisherContract, uint256 threadId)
+        external
+        returns (bool);
 
     /// @dev Verifies a hook with the publisher smart contract before adding it to the registry
     /// @param publisherAddress The address of the publisher contract
     /// @param threadId The id of the thread these hook events will be fired on
-    function verifyHook(address publisherAddress, uint256 threadId) external returns (bool);
+    /// @return Returns true if the hook is successfully verified
+    function verifyHook(address publisherAddress, uint256 threadId)
+        external
+        returns (bool);
 
     /// @dev Update a previously registered hook event
     /// @dev Can be used to transfer hook authorization to a new address
@@ -174,25 +164,43 @@ interface IRegistry {
     /// @param publisherContract The address of the publisher contract
     /// @param publisherPubKey The public key used to verify the hook signatures
     /// @param threadId The id of the thread these hook events will be fired on
-    function updateHook(address publisherContract, address publisherPubKey, uint256 threadId) external returns (bool);
+    /// @return Returns true if the hook is successfully updated
+    function updateHook(
+        address publisherContract,
+        address publisherPubKey,
+        uint256 threadId
+    ) external returns (bool);
 
     /// @dev Registers a subscriber to a hook event
     /// @param publisherContract The address of the publisher contract
     /// @param subscriberContract The address of the contract subscribing to the event hooks
     /// @param threadId The id of the thread these hook events will be fired on
     /// @param fee The fee that the subscriber contract will pay the relayer
-    function registerSubscriber(address publisherContract, address subscriberContract, uint256 threadId, uint256 fee) external returns (bool);
+    /// @return Returns true if the subscriber is successfully registered
+    function registerSubscriber(
+        address publisherContract,
+        address subscriberContract,
+        uint256 threadId,
+        uint256 fee
+    ) external returns (bool);
 
     /// @dev Registers a subscriber to a hook event
     /// @param publisherContract The address of the publisher contract
     /// @param subscriberContract The address of the contract subscribing to the event hooks
     /// @param threadId The id of the thread these hook events will be fired on
     /// @param fee The fee that the subscriber contract will pay the relayer
-    function updateSubscriber(address publisherContract, address subscriberContract, uint256 threadId, uint256 fee) external returns (bool);
+    /// @return Returns true if the subscriber is successfully updated
+    function updateSubscriber(
+        address publisherContract,
+        address subscriberContract,
+        uint256 threadId,
+        uint256 fee
+    ) external returns (bool);
 }
 ```
 
 IPublisher.sol
+
 ```js
 // SPDX-License-Identifier: GPL-3.0
 
@@ -239,6 +247,7 @@ interface IPublisher {
 ```
 
 ISubscriber.sol
+
 ```js
 // SPDX-License-Identifier: GPL-3.0
 
@@ -249,12 +258,14 @@ pragma solidity >=0.7.0 <0.9.0;
 interface ISubscriber {
     /// @dev Example of a function that is called when a hook is fired by a publisher
     /// @param message Hash of the hook event payload that was signed
+    /// @param threadId The id of the thread this hook was fired on
     /// @param nonce Unique nonce of this hook
     /// @param v The v part of the signature
     /// @param r The r part of the signature
     /// @param s The s part of the signature
     function verifyHook(
         bytes32[] memory message,
+        uint256 threadId,
         uint256 nonce,
         uint8 v,
         bytes32 r,
@@ -263,16 +274,29 @@ interface ISubscriber {
 }
 ```
 
+## Rationale
+
+The rationale for this design is that it allows smart contract developers to write contract logic that listens and responds to events fired in other smart contracts, without requiring them to run some dedicated off-chain process to achieve this.  This best suits any simple smart contract logic that runs relatively infrequently in response to events in other contracts.
+
+This improves on the existing solutions to achieve a pub/sub design pattern. To elaborate: a number of service providers currently offer "webhooks" as a way to subscribe to events emitted by smart contracts, by having some API endpoint called when the events are emitted, or alternatively offer some serverless feature that can be triggered by some smart contract event.  This approach works very well, but it does require that some API endpoint or serverless function be always available, which may require some dedicated server / process, which in turn will need to have some private key, and some amount of ETH in order to re-broadcast transactions.
+
+This approach offers a more suitable alternative for when an "always-on" server instance is not desirable, e.g. in the case that it will be called infrequently.
+
+This approach is similar in some ways to the [EIP-777](https://eips.ethereum.org/EIPS/eip-777.md) standard, which defines 'Hooks' that are fired when a contract receives [EIP-20](https://eips.ethereum.org/EIPS/eip-20.md) tokens, however this approach is a more generalized and scalable approach that allows hooks to be fired on any event, for any reason.
+
+This proposal incorporates a decentralized market-driven relay network, and this decision is based on the fact that this is a highly scalable approach.  Conversely, it is possible to implement this functionality without resorting to a market-driven approach, by simply defining a standard for contract to allow other contracts to subscribe directly.  That approach is conceptually simpler, but has its drawbacks, in so far as it requires a publisher contract to record subscribers in its own state, creating an overhead for data management, upgradeability etc.  That approach would also require the publisher to call the subscriber contract's `Hook` function on each subscriber contract, which will incur potentially significant gas costs for the publisher contract, and would be a vector for denial of service attacks.
+
 ## Reference Implementation
 
 registry.sol
+
 ```js
 // SPDX-License-Identifier: GPL-3.0
 
 pragma solidity >=0.7.0 <0.9.0;
 
-import "./IRegistry.sol";
-import "./IPublisher.sol";
+import "https://eips.ethereum.org/EIPS/IRegistry.sol";
+import "https://eips.ethereum.org/EIPS/IPublisher.sol";
 
 contract Registry is IRegistry {
     event HookRegistered(
@@ -424,13 +448,14 @@ contract Registry is IRegistry {
 ```
 
 publisher.sol
+
 ```js
 // SPDX-License-Identifier: GPL-3.0
 
 pragma solidity >=0.7.0 <0.9.0;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "./IPublisher.sol";
+import "https://eips.ethereum.org/EIPS/IPublisher.sol";
 
 contract Publisher is IPublisher, Ownable {
     uint256 public hookNonce;
@@ -455,7 +480,9 @@ contract Publisher is IPublisher, Ownable {
         bytes32 r,
         bytes32 s
     ) public onlyOwner {
-        emit Hook(threadId, hookNonce++, v, r, s, digest, payload);
+        hookNonce++;
+
+        emit Hook(threadId, hookNonce, v, r, s, digest, payload);
     }
 
     function addHook(uint256 threadId, address publisherPubKey)
@@ -481,34 +508,50 @@ contract Publisher is IPublisher, Ownable {
 ```
 
 subscriber.sol
+
 ```js
 // SPDX-License-Identifier: GPL-3.0
 
 pragma solidity >=0.7.0 <0.9.0;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "./ISubscriber.sol";
+import "https://eips.ethereum.org/EIPS/ISubscriber.sol";
 
 contract Subscriber is ISubscriber, Ownable {
     event ValueReceived(address user, uint256 amount);
 
-    address[] public validPublishers;
+    // mapping of publisher address to threadId to nonce
+    mapping(address => mapping(uint256 => uint256)) public validPublishers;
 
     uint256 public currentNonce;
 
     uint256 private constant RELAYER_FEE = 0.001 ether;
-    bytes32 private constant DOMAIN_TYPEHASH = keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract,bytes32 salt)");
-    bytes32 private constant DOMAIN_SALT = 0x5db5bd0cd6f41d9d705525bc4773e06c1cdcb68185b4e00b0b26cc7d2e23761d;
+
+    bytes32 private constant DOMAIN_TYPEHASH =
+        keccak256(
+            "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract,bytes32 salt)"
+        );
+
+    bytes32 private constant DOMAIN_SALT =
+        0x5db5bd0cd6f41d9d705525bc4773e06c1cdcb68185b4e00b0b26cc7d2e23761d;
+
     bytes32 private constant DOMAIN_NAME_HASH = keccak256("Hook");
+
     bytes32 private constant DOMAIN_VERSION_HASH = keccak256("1");
-    bytes32 private constant TYPE_HASH = keccak256("Hook(bytes32 payload,uint256 nonce)");
+
+    bytes32 private constant TYPE_HASH =
+        keccak256("Hook(bytes32 payload,uint256 nonce)");
 
     constructor() {
         currentNonce = 1;
     }
 
-    function addPublisher(address publisherAddress) public onlyOwner {
-        validPublishers.push(publisherAddress);
+    function addPublisher(address publisherAddress, uint256 threadId) public onlyOwner {
+        validPublishers[publisherAddress][threadId] = 1;
+    }
+
+    function getPublisherNonce(address publisherAddress, uint256 threadId) public view returns (uint256) {
+        return validPublishers[publisherAddress][threadId];
     }
 
     receive() external payable {
@@ -517,25 +560,18 @@ contract Subscriber is ISubscriber, Ownable {
 
     function verifyHook(
         bytes32[] memory payload,
+        uint256 threadId,
         uint256 nonce,
         uint8 v,
         bytes32 r,
         bytes32 s
     ) public returns (address signer, bytes32 message) {
-        require(nonce > currentNonce, "Obsolete hook detected");
-
-        uint256 chainId;
-
-        assembly {
-            chainId := chainid()
-        }
-
         bytes32 domainHash = keccak256(
             abi.encode(
                 DOMAIN_TYPEHASH,
                 DOMAIN_NAME_HASH,
                 DOMAIN_VERSION_HASH,
-                chainId,
+                block.chainid,
                 address(this),
                 DOMAIN_SALT
             )
@@ -551,16 +587,16 @@ contract Subscriber is ISubscriber, Ownable {
 
         signer = ecrecover(digest, v, r, s);
 
-        bool isPublisherValid = false;
+        bool isPublisherValid = validPublishers[signer][threadId] != 0;
 
-        for (uint256 i = 0; i < validPublishers.length; i++) {
-            isPublisherValid = isPublisherValid || validPublishers[i] == signer;
-        }
-
+        // checks
+        require(nonce > currentNonce, "Obsolete hook detected");
         require(isPublisherValid, "Publisher not valid");
 
+        // effects
         currentNonce = nonce;
 
+        // interactions
         (bool result, ) = msg.sender.call{value: RELAYER_FEE}("");
 
         require(result, "Failed to send relayer fee");
@@ -586,9 +622,9 @@ In order to cultivate and maintain a reliable relayer market, it is recommended 
 
 ### Replay attacks
 
-It is advised to use the erc-712 standard in order to prevent cross network replay attacks, where the same contract deployed on more than one network can have its hook events pushed to subscribers on other networks, e.g. a publisher contract on Polygon can fire an hook event that could be relayed to a subscriber contract on Gnosis Chain.  Whereas the keys used to sign the hook events should ideally be unique, in reality this may not always be the case.
+It is advised to use the [EIP-712](https://eips.ethereum.org/EIPS/eip-712.md) standard in order to prevent cross network replay attacks, where the same contract deployed on more than one network can have its hook events pushed to subscribers on other networks, e.g. a publisher contract on Polygon can fire an hook event that could be relayed to a subscriber contract on Gnosis Chain.  Whereas the keys used to sign the hook events should ideally be unique, in reality this may not always be the case.
 
-For this reason, it is recommended to use erc-721 Typed Data Signatures.  In this case the off-chain process that initiates the hook should create the signature according to the following data structure:
+For this reason, it is recommended to use [EIP-721](https://eips.ethereum.org/EIPS/eip-712.md) Typed Data Signatures.  In this case the off-chain process that initiates the hook should create the signature according to the following data structure:
 
 ```js
 const domain = [
@@ -626,7 +662,7 @@ const eip712TypedData = {
 }
 ```
 
-Note: please refer to the unit tests in the reference implementation repository for an example of how a hook event should be constructed properly by the publisher.
+Note: please refer to the unit tests for an example of how a hook event should be constructed properly by the publisher.
 
 Replay attacks can also occur on the same network that the event hook was fired, by simply re-broadcasting an event hook that was already broadcast previously.  For this reason, subscriber contracts should check that a nonce is included in the event hook being received, and record the nonce in the contract's state.  If the hook nonce is not valid, or has already been recorded, the transaction should revert.
 
@@ -637,5 +673,3 @@ There is also the possibility to leverage the `chainId` for more than preventing
 ## Copyright
 
 Copyright and related rights waived via CC0.
-
- ^ (ctrl-c / ctrl-v)
