@@ -24,7 +24,11 @@ contract Registry is IRegistry {
         address indexed publisherContract,
         address indexed subscriberContract,
         uint256 threadId,
-        uint256 fee
+        uint256 fee,
+        uint256 maxGas,
+        uint256 maxGasPrice,
+        uint256 chainId,
+        address feeToken
     );
 
     event SubscriberUpdated(
@@ -105,9 +109,12 @@ contract Registry is IRegistry {
         address publisherContract,
         address subscriberContract,
         uint256 threadId,
-        uint256 fee
+        uint256 fee,
+        uint256 maxGas,
+        uint256 maxGasPrice,
+        uint256 chainId,
+        address feeToken
     ) public returns (bool) {
-        // there is probably a minimum amount we should consider, e.g. 21,000 wei
         require(fee > 0, "Fee must be greater than 0");
 
         require(
@@ -123,7 +130,11 @@ contract Registry is IRegistry {
             publisherContract,
             subscriberContract,
             threadId,
-            fee
+            fee,
+            maxGas,
+            maxGasPrice,
+            chainId,
+            feeToken
         );
 
         return true;

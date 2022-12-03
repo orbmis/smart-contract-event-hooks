@@ -6,6 +6,12 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "./ISubscriber.sol";
 
 contract Subscriber is ISubscriber, Ownable {
+    uint256 public constant MAX_AGE = 300;
+    uint256 public constant STARTING_GAS = 21000;
+    uint256 public constant VERIFY_HOOK_ENTRY_GAS = 8000;
+    uint256 public constant MAX_GAS_ALLOWED = STARTING_GAS + VERIFY_HOOK_ENTRY_GAS;
+    uint256 public constant MAX_GAS_PRICE = 10000000000;
+
     event ValueReceived(address user, uint256 amount);
 
     // mapping of publisher address to threadId to nonce
@@ -28,17 +34,24 @@ contract Subscriber is ISubscriber, Ownable {
     bytes32 private constant DOMAIN_VERSION_HASH = keccak256("1");
 
     bytes32 private constant TYPE_HASH =
-        keccak256("Hook(bytes32 payload,uint256 nonce)");
+        keccak256("Hook(bytes32 payload,uint256 nonce,uint256 blockheight,uint256 threadId)");
 
     constructor() {
         currentNonce = 1;
     }
 
-    function addPublisher(address publisherAddress, uint256 threadId) public onlyOwner {
+    function addPublisher(address publisherAddress, uint256 threadId)
+        public
+        onlyOwner
+    {
         validPublishers[publisherAddress][threadId] = 1;
     }
 
-    function getPublisherNonce(address publisherAddress, uint256 threadId) public view returns (uint256) {
+    function getPublisherNonce(address publisherAddress, uint256 threadId)
+        public
+        view
+        returns (uint256)
+    {
         return validPublishers[publisherAddress][threadId];
     }
 
@@ -50,10 +63,13 @@ contract Subscriber is ISubscriber, Ownable {
         bytes32[] memory payload,
         uint256 threadId,
         uint256 nonce,
+        uint256 blockheight,
         uint8 v,
         bytes32 r,
         bytes32 s
     ) public returns (address signer, bytes32 message) {
+        uint256 gasStart = gasleft();
+
         bytes32 domainHash = keccak256(
             abi.encode(
                 DOMAIN_TYPEHASH,
@@ -67,7 +83,9 @@ contract Subscriber is ISubscriber, Ownable {
 
         message = keccak256(abi.encode(payload[0], payload[1], payload[2]));
 
-        bytes32 messageHash = keccak256(abi.encode(TYPE_HASH, message, nonce));
+        bytes32 messageHash = keccak256(
+            abi.encode(TYPE_HASH, message, nonce, blockheight, threadId)
+        );
 
         bytes32 digest = keccak256(
             abi.encodePacked("\x19\x01", domainHash, messageHash)
@@ -80,6 +98,9 @@ contract Subscriber is ISubscriber, Ownable {
         // checks
         require(nonce > currentNonce, "Obsolete hook detected");
         require(isPublisherValid, "Publisher not valid");
+        require(tx.gasprice <= MAX_GAS_PRICE, "Gas price is too high");
+        // require(blockheight < block.number, "Hook event not valid yet");
+        // require((blockheight - block.number) < MAX_AGE, "Hook event has expired");
 
         // effects
         currentNonce = nonce;
@@ -88,5 +109,10 @@ contract Subscriber is ISubscriber, Ownable {
         (bool result, ) = msg.sender.call{value: RELAYER_FEE}("");
 
         require(result, "Failed to send relayer fee");
+
+        require(
+            (gasStart - gasleft()) < MAX_GAS_ALLOWED,
+            "Function call exceeded gas allowance"
+        );
     }
 }

@@ -39,12 +39,20 @@ interface IRegistry {
     /// @param subscriberContract The address of the contract subscribing to the event hooks
     /// @param threadId The id of the thread these hook events will be fired on
     /// @param fee The fee that the subscriber contract will pay the relayer
+    /// @param maxGas The maximum gas that the subscriber allow to spend, to prevent griefing attacks
+    /// @param maxGasPrice The maximum gas price that the subscriber is willing to rebate
+    /// @param chainId The chain id that the subscriber wants updates on
+    /// @param feeToken The address of the token that the fee will be paid in or 0x0 for the chain's native asset (e.g. ETH)
     /// @return Returns true if the subscriber is successfully registered
     function registerSubscriber(
         address publisherContract,
         address subscriberContract,
         uint256 threadId,
-        uint256 fee
+        uint256 fee,
+        uint256 maxGas,
+        uint256 maxGasPrice,
+        uint256 chainId,
+        address feeToken
     ) external returns (bool);
 
     /// @dev Registers a subscriber to a hook event

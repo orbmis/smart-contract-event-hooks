@@ -43,7 +43,7 @@ AMMs can fire a hook whenever there is a trade within a trading pair, emitting t
 
 ### DAO Voting
 
-Hook events can be emmitted by a DAO governance contarct to signal that a proposal has been published, voted on, carried or vetoed, and would allow any subscriber contract to automatically respond accordingly.
+Hook events can be emitted by a DAO governance contract to signal that a proposal has been published, voted on, carried or vetoed, and would allow any subscriber contract to automatically respond accordingly.
 
 ## Specification
 
@@ -73,10 +73,14 @@ To register a subscriber to a hook, the `registerSubscriber` function **MUST** b
  - bytes32 - The subscriber contract address
  - uint256 - The thread id to subscribe to
  - uint256 - the fee that the subscriber is willing to pay to get updates
+ - uint256 - the maximum gas that the subscriber will allow for updates, to prevent griefing attacks
+ - uint256 - the maximum gas price that the subscriber is willing to rebate, or 0 to indicate no rebates, in which case it assumed the relay fee covers gas fees
  - uint256 - the chain id that the subscriber wants updates on
- - uint256 - the address of the token that the fee will be paid in or 0x0 for the chain's native asset (e.g. ETH)
+ - address - the address of the token that the fee will be paid in or 0x0 for the chain's native asset (e.g. ETH)
 
- Note that while the chain id and the token address were not included in the original version of the spec, the simple addition of these two parameters allows for leveraging the relayers for cross chain messages, should the subscriber wish to do this, and allows for payment in various tokens.
+The subscriber contract **MAY** implement gas refunds on top of the fixed fee per update. Where a subscriber chooses to do this, a then they **SHOULD** specify the `maximum gas` and `maximum gas price` parameters in order to protect themselves from griefing attacks. This is so that a malicious or careless relay doesn't set an exorbitantly high gas price and ends up draining the subscriber contracts. Subscriber contract can also choose to set a fee that is estimated to be sufficiently high to cover gas fees, but in this case will need to take care to check that the specified gas price does not effectively reduce the fee to zero (see the note under front-running below).
+
+Note that while the chain id and the token address were not included in the original version of the spec, the simple addition of these two parameters allows for leveraging the relayers for cross chain messages, should the subscriber wish to do this, and allows for payment in various tokens.
 
 ### Updating a subscriber
 
@@ -176,12 +180,20 @@ interface IRegistry {
     /// @param subscriberContract The address of the contract subscribing to the event hooks
     /// @param threadId The id of the thread these hook events will be fired on
     /// @param fee The fee that the subscriber contract will pay the relayer
+    /// @param maxGas The maximum gas that the subscriber allow to spend, to prevent griefing attacks
+    /// @param maxGasPrice The maximum gas price that the subscriber is willing to rebate
+    /// @param chainId The chain id that the subscriber wants updates on
+    /// @param feeToken The address of the token that the fee will be paid in or 0x0 for the chain's native asset (e.g. ETH)
     /// @return Returns true if the subscriber is successfully registered
     function registerSubscriber(
         address publisherContract,
         address subscriberContract,
         uint256 threadId,
-        uint256 fee
+        uint256 fee,
+        uint256 maxGas,
+        uint256 maxGasPrice,
+        uint256 chainId,
+        address feeToken
     ) external returns (bool);
 
     /// @dev Registers a subscriber to a hook event
@@ -295,8 +307,8 @@ registry.sol
 
 pragma solidity >=0.7.0 <0.9.0;
 
-import "https://eips.ethereum.org/EIPS/IRegistry.sol";
-import "https://eips.ethereum.org/EIPS/IPublisher.sol";
+import "./IRegistry.sol";
+import "./IPublisher.sol";
 
 contract Registry is IRegistry {
     event HookRegistered(
@@ -317,7 +329,11 @@ contract Registry is IRegistry {
         address indexed publisherContract,
         address indexed subscriberContract,
         uint256 threadId,
-        uint256 fee
+        uint256 fee,
+        uint256 maxGas,
+        uint256 maxGasPrice,
+        uint256 chainId,
+        address feeToken
     );
 
     event SubscriberUpdated(
@@ -398,9 +414,12 @@ contract Registry is IRegistry {
         address publisherContract,
         address subscriberContract,
         uint256 threadId,
-        uint256 fee
+        uint256 fee,
+        uint256 maxGas,
+        uint256 maxGasPrice,
+        uint256 chainId,
+        address feeToken
     ) public returns (bool) {
-        // there is probably a minimum amount we should consider, e.g. 21,000 wei
         require(fee > 0, "Fee must be greater than 0");
 
         require(
@@ -416,7 +435,11 @@ contract Registry is IRegistry {
             publisherContract,
             subscriberContract,
             threadId,
-            fee
+            fee,
+            maxGas,
+            maxGasPrice,
+            chainId,
+            feeToken
         );
 
         return true;
@@ -515,9 +538,15 @@ subscriber.sol
 pragma solidity >=0.7.0 <0.9.0;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "https://eips.ethereum.org/EIPS/ISubscriber.sol";
+import "./ISubscriber.sol";
 
 contract Subscriber is ISubscriber, Ownable {
+    uint256 public constant MAX_AGE = 300;
+    uint256 public constant STARTING_GAS = 21000;
+    uint256 public constant VERIFY_HOOK_ENTRY_GAS = 8000;
+    uint256 public constant MAX_GAS_ALLOWED = STARTING_GAS + VERIFY_HOOK_ENTRY_GAS;
+    uint256 public constant MAX_GAS_PRICE = 10000000000;
+
     event ValueReceived(address user, uint256 amount);
 
     // mapping of publisher address to threadId to nonce
@@ -540,17 +569,24 @@ contract Subscriber is ISubscriber, Ownable {
     bytes32 private constant DOMAIN_VERSION_HASH = keccak256("1");
 
     bytes32 private constant TYPE_HASH =
-        keccak256("Hook(bytes32 payload,uint256 nonce)");
+        keccak256("Hook(bytes32 payload,uint256 nonce,uint256 blockheight,uint256 threadId)");
 
     constructor() {
         currentNonce = 1;
     }
 
-    function addPublisher(address publisherAddress, uint256 threadId) public onlyOwner {
+    function addPublisher(address publisherAddress, uint256 threadId)
+        public
+        onlyOwner
+    {
         validPublishers[publisherAddress][threadId] = 1;
     }
 
-    function getPublisherNonce(address publisherAddress, uint256 threadId) public view returns (uint256) {
+    function getPublisherNonce(address publisherAddress, uint256 threadId)
+        public
+        view
+        returns (uint256)
+    {
         return validPublishers[publisherAddress][threadId];
     }
 
@@ -562,10 +598,13 @@ contract Subscriber is ISubscriber, Ownable {
         bytes32[] memory payload,
         uint256 threadId,
         uint256 nonce,
+        uint256 blockheight,
         uint8 v,
         bytes32 r,
         bytes32 s
     ) public returns (address signer, bytes32 message) {
+        uint256 gasStart = gasleft();
+
         bytes32 domainHash = keccak256(
             abi.encode(
                 DOMAIN_TYPEHASH,
@@ -579,7 +618,9 @@ contract Subscriber is ISubscriber, Ownable {
 
         message = keccak256(abi.encode(payload[0], payload[1], payload[2]));
 
-        bytes32 messageHash = keccak256(abi.encode(TYPE_HASH, message, nonce));
+        bytes32 messageHash = keccak256(
+            abi.encode(TYPE_HASH, message, nonce, blockheight, threadId)
+        );
 
         bytes32 digest = keccak256(
             abi.encodePacked("\x19\x01", domainHash, messageHash)
@@ -592,6 +633,9 @@ contract Subscriber is ISubscriber, Ownable {
         // checks
         require(nonce > currentNonce, "Obsolete hook detected");
         require(isPublisherValid, "Publisher not valid");
+        require(tx.gasprice <= MAX_GAS_PRICE, "Gas price is too high");
+        require(blockheight < block.number, "Hook event not valid yet");
+        require((blockheight - block.number) < MAX_AGE, "Hook event has expired");
 
         // effects
         currentNonce = nonce;
@@ -600,6 +644,11 @@ contract Subscriber is ISubscriber, Ownable {
         (bool result, ) = msg.sender.call{value: RELAYER_FEE}("");
 
         require(result, "Failed to send relayer fee");
+
+        require(
+            (gasStart - gasleft()) < MAX_GAS_ALLOWED,
+            "Function call exceeded gas allowance"
+        );
     }
 }
 ```
@@ -618,7 +667,7 @@ To this end, publishers must bear in mind that the transaction that fires hooks 
 
 Another risk from front-running affects relayers, whereby the relayer's transactions to the subscriber contracts can be front-run by generalized MEV searchers in the mempool.  It is likely that this sort of MEV capture will occur in the public mempool, and therefore it is advised that relayers use private channels to block builders to mitigate against this issue.  By broadcasting transactions to a segregated mempool, relayers protect themselves from front-running by generalized MEV bots, but their transactions can still fail due to competition from other relayers.  If two or more relayers decide to start relaying hook events from the same publisher, then the relay transactions with the highest gas price will be executed before the others.  This will result in the other relayer's transactions failing on-chain, by being included later in the same block.  For now, there are certain transaction optimization services that will prevent transactions from failing on-chain, which will offer a solution to this problem, though this is out-of-scope for this document.  A future iteration of this proposal may well include the option for trusted relayers, who can enter into an on-chain enforceable agreement with subscribers, which should reduce the race-to-the-bottom competitive gas fee issue.
 
-In order to cultivate and maintain a reliable relayer market, it is recommended that where possible, a subscriber contract implements a logical condition that checks that the gas price of the transaction that is calling the `verifyHook` function to ensure that the gas price does not effectively reduce the fee to zero.  This would require that the smart contract have some knowledge of the approximate gas used by the `verifyHook` function, and checks that the condition `minFee => fee - (gasPrice * gasUsed)`.  This will mitigate against competitive bidding that would drive the effective fee to zero, by ensuring that there is some minimum fee below which the effective fee is not allowed to drop.  This would mean that the highest gas price that can be paid before the transaction reverts is `fee - minFee + ε` where `ε ~= 1 gwei`.  This will require careful estimation of the gas cost of the `verifyHook` function and an awareness that the gas used may change over time as the contract's state changes.
+In order to cultivate and maintain a reliable relayer market, it is recommended that where possible, a subscriber contract implements logic to either rebate any gas fees up to a specified limit, (while still allowing for execution of hook updates under normal conditions), or implements a logical condition that checks that the gas price of the transaction that is calling the `verifyHook` function to ensure that the gas price does not effectively reduce the fee to zero.  This would require that the smart contract have some knowledge of the approximate gas used by the `verifyHook` function, and checks that the condition `minFee => fee - (gasPrice * gasUsed)`.  This will mitigate against competitive bidding that would drive the effective fee to zero, by ensuring that there is some minimum fee below which the effective fee is not allowed to drop.  This would mean that the highest gas price that can be paid before the transaction reverts is `fee - minFee + ε` where `ε ~= 1 gwei`.  This will require careful estimation of the gas cost of the `verifyHook` function and an awareness that the gas used may change over time as the contract's state changes.
 
 ### Replay attacks
 
@@ -636,7 +685,10 @@ const domain = [
 ]
  
 const hook = [
-  { "name": "payload", "type": "string" }
+  { name: "payload", type: "string" },
+  { type: "uint256", name: "nonce" },
+  { type: "uint256", name: "blockheight" },
+  { type: "uint256", name: "threadId" },
 ]
  
 const domainData = {
@@ -648,7 +700,10 @@ const domainData = {
 }
  
 const message = {
-  payload: "RLP encoded payload"
+  payload: "bytes32 array serialized payload"
+  nonce: 1,
+  blockheight: 999999,
+  threadId: 1,
 }
  
 const eip712TypedData = {

@@ -20,7 +20,13 @@ const params = [
   web3.utils.keccak256('three'),
 ]
 
-async function getTypedData(nonce, verifyingContract, publisherAddress) {
+const FEE = 460000
+const MAX_GAS = 500000
+const MAX_GAS_PRICE = 40
+
+const BLOCKHEIGHT = 16075367
+
+async function getTypedData(threadId, nonce, verifyingContract, publisherAddress, blockheight) {
   const chainId = await web3.eth.getChainId()
 
   const salt = '0x5db5bd0cd6f41d9d705525bc4773e06c1cdcb68185b4e00b0b26cc7d2e23761d'
@@ -37,6 +43,8 @@ async function getTypedData(nonce, verifyingContract, publisherAddress) {
       Hook: [
         { type: 'bytes32', name: 'payload' },
         { type: 'uint256', name: 'nonce' },
+        { type: 'uint256', name: 'blockheight' },
+        { type: 'uint256', name: 'threadId' },
       ],
     },
     domain: {
@@ -50,6 +58,8 @@ async function getTypedData(nonce, verifyingContract, publisherAddress) {
     message: {
       payload: digest,
       nonce,
+      blockheight,
+      threadId,
     },
   }
 
@@ -178,13 +188,16 @@ contract('Registry', (accounts) => {
   })
 
   it('should add a subscriber to the registry', async () => {
-    const FEE = 460000
-
+    // TODO: Also include max age (in blocks)
     const registerSubscriberResult = await registryInstance.registerSubscriber(
       publisherInstance.address,
       subscriberInstance.address,
       1,
       FEE,
+      MAX_GAS,
+      MAX_GAS_PRICE,
+      1,
+      '0x0000000000000000000000000000000000000000',
       {
         from: accounts[2],
       }
@@ -217,6 +230,10 @@ contract('Registry', (accounts) => {
         subscriberInstance.address,
         1,
         0,
+        MAX_GAS,
+        MAX_GAS_PRICE,
+        1,
+        '0x0000000000000000000000000000000000000000',
         {
           from: accounts[2],
         }
@@ -228,6 +245,8 @@ contract('Registry', (accounts) => {
 
   it('should not allow a subscriber to be added to the registry more than once', async () => {
     const FEE = 460000
+    const MAX_GAS_PRICE = 40
+    const MAX_GAS = 500000
 
     try {
       await registryInstance.registerSubscriber(
@@ -235,6 +254,10 @@ contract('Registry', (accounts) => {
         subscriberInstance.address,
         1,
         FEE,
+        MAX_GAS_PRICE,
+        MAX_GAS,
+        1,
+        '0x0000000000000000000000000000000000000000',
         {
           from: accounts[2],
         }
@@ -335,9 +358,12 @@ contract('Subscriber', (accounts) => {
   })
 
   it('should verify incoming hooks', async function () {
-    const sig = await getTypedData(2, subscriberInstance.address, accounts[1])
+    const sig = await getTypedData(1, 2, subscriberInstance.address, accounts[1], BLOCKHEIGHT)
 
-    await subscriberInstance.verifyHook(params, 1, 2, sig.v, sig.r, sig.s)
+    // NOTE: threadId is not included in signature, which means that messages can be replayed across threads!
+    // i.e. the relayer can change the threadId without the subscriber knowing
+    // also, this needs to be updated in the publisher when allowing subscribers to verify hooks
+    await subscriberInstance.verifyHook(params, 1, 2, BLOCKHEIGHT, sig.v, sig.r, sig.s)
 
     const nonceCheck = await subscriberInstance.currentNonce.call()
 
@@ -347,9 +373,9 @@ contract('Subscriber', (accounts) => {
   it('pay the correct relayer fee', async function () {
     const balanceBefore = await web3.eth.getBalance(accounts[0])
 
-    const sig = await getTypedData(4, subscriberInstance.address, accounts[1])
+    const sig = await getTypedData(1, 4, subscriberInstance.address, accounts[1], BLOCKHEIGHT)
 
-    const txResult = await subscriberInstance.verifyHook(params, 1, 4, sig.v, sig.r, sig.s)
+    const txResult = await subscriberInstance.verifyHook(params, 1, 4, BLOCKHEIGHT, sig.v, sig.r, sig.s)
 
     const balanceAfter = await web3.eth.getBalance(accounts[0])
 
@@ -368,17 +394,17 @@ contract('Subscriber', (accounts) => {
 
   it('should prevent against re-entrancy and replay attacks', async function () {
     try {
-      await subscriberInstance.verifyHook(params, 1, 4, v, r, s)
+      await subscriberInstance.verifyHook(params, 1, 4, BLOCKHEIGHT, v, r, s)
     } catch (e) {
       assert.include(e.message, 'Obsolete hook detected')
     }
   })
 
   it('should detect invalid hooks', async function () {
-    const sig = await getTypedData(2, subscriberInstance.address, accounts[4])
+    const sig = await getTypedData(1, 2, subscriberInstance.address, accounts[4], BLOCKHEIGHT)
 
     try {
-      await subscriberInstance.verifyHook(params, 1, 2, sig.v, sig.r, sig.s)
+      await subscriberInstance.verifyHook(params, 1, 2, BLOCKHEIGHT, sig.v, sig.r, sig.s)
     } catch (e) {
       assert.include(e.message, 'Obsolete hook detected')
     }

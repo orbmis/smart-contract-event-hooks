@@ -1,7 +1,7 @@
 {
-  "name": "contracthooks",
+  "name": "smart-contract-event-hooks",
   "version": "1.0.0",
-  "description": "Reference implementation for contract hooks",
+  "description": "Reference implementation for smart contract contract hooks",
   "directories": {
     "test": "test"
   },
@@ -13,7 +13,7 @@
   "author": "Simon Brown<orbmis@pm.me>",
   "repository": {
     "type": "git",
-    "url": "https://github.com/orbmis/hooks"
+    "url": "https://github.com/orbmis/smart-contract-event-hooks"
   },
   "license": "CC0",
   "devDependencies": {
