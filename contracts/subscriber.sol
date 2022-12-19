@@ -102,8 +102,6 @@ contract Subscriber is ISubscriber, Ownable {
 
         bytes memory _sigv = bytes(payload[64:65]);
 
-        // TODO: implement EIP-1271: Standard Signature Validation Method for Contracts
-        // see: https://eips.ethereum.org/EIPS/eip-1271
         signer = ecrecover(
             digest,
             uint8(_sigv[0]),
