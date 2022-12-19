@@ -10,16 +10,10 @@ interface ISubscriber {
     /// @param threadId The id of the thread this hook was fired on
     /// @param nonce Unique nonce of this hook
     /// @param blockheight The block height at which the hook event was fired
-    /// @param v The v part of the signature
-    /// @param r The r part of the signature
-    /// @param s The s part of the signature
     function verifyHook(
-        bytes32[] memory payload,
+        bytes calldata payload,
         uint256 threadId,
         uint256 nonce,
-        uint256 blockheight,
-        uint8 v,
-        bytes32 r,
-        bytes32 s
+        uint256 blockheight
     ) external returns (address signer, bytes32 message);
 }

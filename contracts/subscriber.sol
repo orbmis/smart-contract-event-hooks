@@ -9,8 +9,10 @@ contract Subscriber is ISubscriber, Ownable {
     uint256 public constant MAX_AGE = 300;
     uint256 public constant STARTING_GAS = 21000;
     uint256 public constant VERIFY_HOOK_ENTRY_GAS = 8000;
-    uint256 public constant MAX_GAS_ALLOWED = STARTING_GAS + VERIFY_HOOK_ENTRY_GAS;
     uint256 public constant MAX_GAS_PRICE = 10000000000;
+
+    uint256 public constant MAX_GAS_ALLOWED =
+        STARTING_GAS + VERIFY_HOOK_ENTRY_GAS;
 
     event ValueReceived(address user, uint256 amount);
 
@@ -34,10 +36,25 @@ contract Subscriber is ISubscriber, Ownable {
     bytes32 private constant DOMAIN_VERSION_HASH = keccak256("1");
 
     bytes32 private constant TYPE_HASH =
-        keccak256("Hook(bytes32 payload,uint256 nonce,uint256 blockheight,uint256 threadId)");
+        keccak256(
+            "Hook(bytes32 payload,uint256 nonce,uint256 blockheight,uint256 threadId)"
+        );
+
+    bytes32 private domainHash;
 
     constructor() {
         currentNonce = 1;
+
+        domainHash = keccak256(
+            abi.encode(
+                DOMAIN_TYPEHASH,
+                DOMAIN_NAME_HASH,
+                DOMAIN_VERSION_HASH,
+                block.chainid,
+                address(this),
+                DOMAIN_SALT
+            )
+        );
     }
 
     function addPublisher(address publisherAddress, uint256 threadId)
@@ -60,28 +77,20 @@ contract Subscriber is ISubscriber, Ownable {
     }
 
     function verifyHook(
-        bytes32[] memory payload,
+        bytes calldata payload,
         uint256 threadId,
         uint256 nonce,
-        uint256 blockheight,
-        uint8 v,
-        bytes32 r,
-        bytes32 s
+        uint256 blockheight
     ) public returns (address signer, bytes32 message) {
         uint256 gasStart = gasleft();
 
-        bytes32 domainHash = keccak256(
+        message = keccak256(
             abi.encode(
-                DOMAIN_TYPEHASH,
-                DOMAIN_NAME_HASH,
-                DOMAIN_VERSION_HASH,
-                block.chainid,
-                address(this),
-                DOMAIN_SALT
+                bytes32(payload[65:97]),
+                bytes32(payload[97:129]),
+                bytes32(payload[129:161])
             )
         );
-
-        message = keccak256(abi.encode(payload[0], payload[1], payload[2]));
 
         bytes32 messageHash = keccak256(
             abi.encode(TYPE_HASH, message, nonce, blockheight, threadId)
@@ -91,13 +100,20 @@ contract Subscriber is ISubscriber, Ownable {
             abi.encodePacked("\x19\x01", domainHash, messageHash)
         );
 
-        signer = ecrecover(digest, v, r, s);
+        bytes memory _sigv = bytes(payload[64:65]);
 
-        bool isPublisherValid = validPublishers[signer][threadId] != 0;
+        // TODO: implement EIP-1271: Standard Signature Validation Method for Contracts
+        // see: https://eips.ethereum.org/EIPS/eip-1271
+        signer = ecrecover(
+            digest,
+            uint8(_sigv[0]),
+            bytes32(payload[:32]),
+            bytes32(payload[32:64])
+        );
 
         // checks
         require(nonce > currentNonce, "Obsolete hook detected");
-        require(isPublisherValid, "Publisher not valid");
+        require(validPublishers[signer][threadId] != 0, "Publisher not valid");
         require(tx.gasprice <= MAX_GAS_PRICE, "Gas price is too high");
         // require(blockheight < block.number, "Hook event not valid yet");
         // require((blockheight - block.number) < MAX_AGE, "Hook event has expired");

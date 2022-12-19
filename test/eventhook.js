@@ -89,7 +89,7 @@ async function getTypedData(threadId, nonce, verifyingContract, publisherAddress
     'local not verified locally'
   )
 
-  return { v, r, s }
+  return { v, r, s, signature }
 }
 
 contract('Publisher', (accounts) => {
@@ -360,22 +360,26 @@ contract('Subscriber', (accounts) => {
   it('should verify incoming hooks', async function () {
     const sig = await getTypedData(1, 2, subscriberInstance.address, accounts[1], BLOCKHEIGHT)
 
+    const data = params.reduce((acc, cur) => (acc += cur.substring(2)), '0x' + sig.signature)
+
     // NOTE: threadId is not included in signature, which means that messages can be replayed across threads!
     // i.e. the relayer can change the threadId without the subscriber knowing
     // also, this needs to be updated in the publisher when allowing subscribers to verify hooks
-    await subscriberInstance.verifyHook(params, 1, 2, BLOCKHEIGHT, sig.v, sig.r, sig.s)
+    await subscriberInstance.verifyHook(data, 1, 2, BLOCKHEIGHT)
 
     const nonceCheck = await subscriberInstance.currentNonce.call()
 
     assert.equal(nonceCheck.toNumber(), 2)
   })
 
-  it('pay the correct relayer fee', async function () {
+  it('should pay the correct relayer fee', async function () {
     const balanceBefore = await web3.eth.getBalance(accounts[0])
 
     const sig = await getTypedData(1, 4, subscriberInstance.address, accounts[1], BLOCKHEIGHT)
 
-    const txResult = await subscriberInstance.verifyHook(params, 1, 4, BLOCKHEIGHT, sig.v, sig.r, sig.s)
+    const data = params.reduce((acc, cur) => (acc += cur.substring(2)), '0x' + sig.signature)
+
+    const txResult = await subscriberInstance.verifyHook(data, 1, 4, BLOCKHEIGHT)
 
     const balanceAfter = await web3.eth.getBalance(accounts[0])
 
@@ -393,8 +397,11 @@ contract('Subscriber', (accounts) => {
   })
 
   it('should prevent against re-entrancy and replay attacks', async function () {
+    const sig = await getTypedData(1, 4, subscriberInstance.address, accounts[1], BLOCKHEIGHT)
+    const data = params.reduce((acc, cur) => (acc += cur.substring(2)), '0x' + sig.signature)
+
     try {
-      await subscriberInstance.verifyHook(params, 1, 4, BLOCKHEIGHT, v, r, s)
+      await subscriberInstance.verifyHook(data, 1, 4, BLOCKHEIGHT)
     } catch (e) {
       assert.include(e.message, 'Obsolete hook detected')
     }
@@ -402,9 +409,10 @@ contract('Subscriber', (accounts) => {
 
   it('should detect invalid hooks', async function () {
     const sig = await getTypedData(1, 2, subscriberInstance.address, accounts[4], BLOCKHEIGHT)
+    const data = params.reduce((acc, cur) => (acc += cur.substring(2)), '0x' + sig.signature)
 
     try {
-      await subscriberInstance.verifyHook(params, 1, 2, BLOCKHEIGHT, sig.v, sig.r, sig.s)
+      await subscriberInstance.verifyHook(data, 1, 2, BLOCKHEIGHT)
     } catch (e) {
       assert.include(e.message, 'Obsolete hook detected')
     }
