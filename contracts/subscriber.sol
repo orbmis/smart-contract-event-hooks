@@ -4,6 +4,7 @@ pragma solidity >=0.7.0 <0.9.0;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "./ISubscriber.sol";
+import "./IPublisher.sol";
 
 contract Subscriber is ISubscriber, Ownable {
     uint256 public constant MAX_AGE = 3;
@@ -77,6 +78,7 @@ contract Subscriber is ISubscriber, Ownable {
     }
 
     function verifyHook(
+        address publisher,
         bytes calldata payload,
         uint256 threadId,
         uint256 nonce,
@@ -102,6 +104,9 @@ contract Subscriber is ISubscriber, Ownable {
             bytes32(payload[:32]),
             bytes32(payload[32:64])
         );
+
+        // is publisher trusted?
+        // bool isHookValid = IPublisher(publisher).verifyEventHook(digest, threadId, nonce, blockheight);
 
         // checks
         require(nonce > currentNonce, "Obsolete hook detected");

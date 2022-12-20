@@ -25,6 +25,7 @@ const MAX_GAS = 500000
 const MAX_GAS_PRICE = 40
 
 let blocknumber
+let publisherAddress
 
 async function getTypedData(
   threadId,
@@ -119,7 +120,7 @@ contract('Publisher', (accounts) => {
   })
 
   it('should verify that a publisher permits regitration of a hook', async () => {
-    const verifyHookResult = await publisherInstance.verifyEventHook.call(1, accounts[1])
+    const verifyHookResult = await publisherInstance.verifyEventHookRegistration.call(1, accounts[1])
 
     assert.isTrue(verifyHookResult)
   })
@@ -129,24 +130,23 @@ contract('Publisher', (accounts) => {
 
     const signature = await web3.eth.sign(hashedMessage, accounts[1])
 
-    const { v, r, s } = ethUtil.fromRpcSig(signature)
+    const data = createPayload(params, signature).substring(2)
 
-    const result = await publisherInstance.fireHook(
-      params,
-      digest,
-      1,
-      v,
-      ethUtil.bufferToHex(r),
-      ethUtil.bufferToHex(s)
-    )
+    const result = await publisherInstance.fireHook(data, digest, 1)
 
     truffleAssert.eventEmitted(result, 'Hook', (ev) => {
       return (ev.digest = digest && ev.threadId.toNumber() === 1)
     })
 
-    const verifyHookResult = await publisherInstance.verifyEventHook.call(1, accounts[1])
+    const verifyHookResult = await publisherInstance.verifyEventHookRegistration.call(1, accounts[1])
 
     assert.isTrue(verifyHookResult)
+  })
+
+  it('should verify a hook that was previously fired', async () => {
+    const verifyHook = await publisherInstance.verifyEventHook.call(digest, 1, 1, 5)
+
+    assert.isTrue(verifyHook)
   })
 })
 
@@ -157,6 +157,8 @@ contract('Registry', (accounts) => {
     publisherInstance = await Publisher.deployed()
     subscriberInstance = await Subscriber.deployed()
     registryInstance = await Registry.deployed()
+
+    publisherAddress = publisherInstance.address
   })
 
   it('should add a publisher / hook to the registry', async () => {
@@ -385,7 +387,7 @@ contract('Subscriber', (accounts) => {
     // NOTE: threadId is not included in signature, which means that messages can be replayed across threads!
     // i.e. the relayer can change the threadId without the subscriber knowing
     // also, this needs to be updated in the publisher when allowing subscribers to verify hooks
-    await subscriberInstance.verifyHook(data, 1, 2, blocknumber)
+    await subscriberInstance.verifyHook(publisherAddress, data, 1, 2, blocknumber)
 
     const nonceCheck = await subscriberInstance.currentNonce.call()
 
@@ -406,7 +408,7 @@ contract('Subscriber', (accounts) => {
 
     const data = createPayload(params, sig.signature)
 
-    const txResult = await subscriberInstance.verifyHook(data, 1, 4, blocknumber)
+    const txResult = await subscriberInstance.verifyHook(publisherAddress, data, 1, 4, blocknumber)
 
     const balanceAfter = await web3.eth.getBalance(accounts[0])
 
@@ -435,7 +437,7 @@ contract('Subscriber', (accounts) => {
     const data = createPayload(params, sig.signature)
 
     try {
-      await subscriberInstance.verifyHook(data, 1, 4, blocknumber)
+      await subscriberInstance.verifyHook(publisherAddress, data, 1, 4, blocknumber)
     } catch (e) {
       assert.include(e.message, 'Obsolete hook detected')
     }
@@ -453,7 +455,7 @@ contract('Subscriber', (accounts) => {
     const data = createPayload(params, sig.signature)
 
     try {
-      await subscriberInstance.verifyHook(data, 1, 5, blocknumber)
+      await subscriberInstance.verifyHook(publisherAddress, data, 1, 5, blocknumber)
     } catch (e) {
       assert.include(e.message, 'Publisher not valid')
     }
@@ -464,7 +466,7 @@ contract('Subscriber', (accounts) => {
     const data = params.reduce((acc, cur) => (acc += cur.substring(2)), '0x' + sig.signature)
 
     try {
-      await subscriberInstance.verifyHook(data, 1, 6, 10)
+      await subscriberInstance.verifyHook(publisherAddress, data, 1, 6, 10)
     } catch (e) {
       assert.include(e.message, 'Hook event not valid yet')
     }
@@ -475,7 +477,7 @@ contract('Subscriber', (accounts) => {
     const data = createPayload(params, sig.signature)
 
     try {
-      await subscriberInstance.verifyHook(data, 1, 6, 4)
+      await subscriberInstance.verifyHook(publisherAddress, data, 1, 6, 4)
     } catch (e) {
       assert.include(e.message, 'Hook event has expired')
     }

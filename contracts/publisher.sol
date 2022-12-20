@@ -8,29 +8,30 @@ import "./IPublisher.sol";
 contract Publisher is IPublisher, Ownable {
     uint256 public hookNonce;
 
+    // mappoing of threadId to nonce to digest (payload data hash)
+    mapping(uint256 => mapping(uint256 => bytes32)) public firedHooks;
+
     event Hook(
         uint256 indexed threadId,
         uint256 indexed nonce,
-        uint8 v,
-        bytes32 r,
-        bytes32 s,
         bytes32 digest,
-        bytes32[] payload
+        bytes payload
     );
 
     mapping(uint256 => address) public hooks;
 
     function fireHook(
-        bytes32[] memory payload,
+        bytes calldata payload,
         bytes32 digest,
-        uint256 threadId,
-        uint8 v,
-        bytes32 r,
-        bytes32 s
+        uint256 threadId
     ) public onlyOwner {
         hookNonce++;
 
-        emit Hook(threadId, hookNonce, v, r, s, digest, payload);
+        bytes32 checksum = keccak256(abi.encodePacked(digest, block.number));
+
+        firedHooks[threadId][hookNonce] = checksum;
+
+        emit Hook(threadId, hookNonce, digest, payload);
     }
 
     function addHook(uint256 threadId, address publisherPubKey)
@@ -40,13 +41,24 @@ contract Publisher is IPublisher, Ownable {
         hooks[threadId] = publisherPubKey;
     }
 
-    function verifyEventHook(uint256 threadId, address publisherPubKey)
-        public
-        view
-        override
-        returns (bool)
-    {
+    function verifyEventHookRegistration(
+        uint256 threadId,
+        address publisherPubKey
+    ) public view override returns (bool) {
         return (hooks[threadId] == publisherPubKey);
+    }
+
+    function verifyEventHook(
+        bytes32 payloadhash,
+        uint256 threadId,
+        uint256 nonce,
+        uint256 blockheight
+    ) external view returns (bool) {
+        bytes32 checksum = keccak256(abi.encodePacked(payloadhash, blockheight));
+
+        bool result = firedHooks[threadId][nonce] == checksum;
+
+        return result;
     }
 
     function getEventHook(uint256 threadId) public view returns (address) {

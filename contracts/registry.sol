@@ -85,7 +85,10 @@ contract Registry is IRegistry {
         returns (bool)
     {
         return
-            IPublisher(publisherAddress).verifyEventHook(threadId, msg.sender);
+            IPublisher(publisherAddress).verifyEventHookRegistration(
+                threadId,
+                msg.sender
+            );
     }
 
     function updateHook(
