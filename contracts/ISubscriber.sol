@@ -15,5 +15,5 @@ interface ISubscriber {
         uint256 threadId,
         uint256 nonce,
         uint256 blockheight
-    ) external returns (address signer, bytes32 message);
+    ) external;
 }

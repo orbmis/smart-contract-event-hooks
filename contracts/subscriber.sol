@@ -6,7 +6,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "./ISubscriber.sol";
 
 contract Subscriber is ISubscriber, Ownable {
-    uint256 public constant MAX_AGE = 300;
+    uint256 public constant MAX_AGE = 3;
     uint256 public constant STARTING_GAS = 21000;
     uint256 public constant VERIFY_HOOK_ENTRY_GAS = 8000;
     uint256 public constant MAX_GAS_PRICE = 10000000000;
@@ -81,16 +81,10 @@ contract Subscriber is ISubscriber, Ownable {
         uint256 threadId,
         uint256 nonce,
         uint256 blockheight
-    ) public returns (address signer, bytes32 message) {
+    ) public {
         uint256 gasStart = gasleft();
 
-        message = keccak256(
-            abi.encode(
-                bytes32(payload[65:97]),
-                bytes32(payload[97:129]),
-                bytes32(payload[129:161])
-            )
-        );
+        bytes32 message = keccak256(payload[65:161]);
 
         bytes32 messageHash = keccak256(
             abi.encode(TYPE_HASH, message, nonce, blockheight, threadId)
@@ -102,7 +96,7 @@ contract Subscriber is ISubscriber, Ownable {
 
         bytes memory _sigv = bytes(payload[64:65]);
 
-        signer = ecrecover(
+        address signer = ecrecover(
             digest,
             uint8(_sigv[0]),
             bytes32(payload[:32]),
@@ -113,8 +107,11 @@ contract Subscriber is ISubscriber, Ownable {
         require(nonce > currentNonce, "Obsolete hook detected");
         require(validPublishers[signer][threadId] != 0, "Publisher not valid");
         require(tx.gasprice <= MAX_GAS_PRICE, "Gas price is too high");
-        // require(blockheight < block.number, "Hook event not valid yet");
-        // require((blockheight - block.number) < MAX_AGE, "Hook event has expired");
+        require(blockheight < block.number, "Hook event not valid yet");
+        require(
+            (block.number - blockheight) < MAX_AGE,
+            "Hook event has expired"
+        );
 
         // effects
         currentNonce = nonce;

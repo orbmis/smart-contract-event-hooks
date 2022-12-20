@@ -24,9 +24,16 @@ const FEE = 460000
 const MAX_GAS = 500000
 const MAX_GAS_PRICE = 40
 
-const BLOCKHEIGHT = 16075367
+let blocknumber
 
-async function getTypedData(threadId, nonce, verifyingContract, publisherAddress, blockheight) {
+async function getTypedData(
+  threadId,
+  nonce,
+  verifyingContract,
+  publisherAddress,
+  blockheight,
+  payload
+) {
   const chainId = await web3.eth.getChainId()
 
   const salt = '0x5db5bd0cd6f41d9d705525bc4773e06c1cdcb68185b4e00b0b26cc7d2e23761d'
@@ -56,7 +63,7 @@ async function getTypedData(threadId, nonce, verifyingContract, publisherAddress
     },
     primaryType: 'Hook',
     message: {
-      payload: digest,
+      payload,
       nonce,
       blockheight,
       threadId,
@@ -90,6 +97,10 @@ async function getTypedData(threadId, nonce, verifyingContract, publisherAddress
   )
 
   return { v, r, s, signature }
+}
+
+function createPayload(params, signature) {
+  return params.reduce((acc, cur) => (acc += cur.substring(2)), '0x' + signature)
 }
 
 contract('Publisher', (accounts) => {
@@ -342,7 +353,9 @@ contract('Subscriber', (accounts) => {
       value: web3.utils.toWei('1', 'ether'),
     })
 
-    await subscriberInstance.addPublisher(accounts[1], 1)
+    const tx = await subscriberInstance.addPublisher(accounts[1], 1)
+
+    blocknumber = tx.receipt.blockNumber
 
     const publishersCheck = await subscriberInstance.getPublisherNonce(accounts[1], 1)
 
@@ -358,14 +371,21 @@ contract('Subscriber', (accounts) => {
   })
 
   it('should verify incoming hooks', async function () {
-    const sig = await getTypedData(1, 2, subscriberInstance.address, accounts[1], BLOCKHEIGHT)
+    const sig = await getTypedData(
+      1,
+      2,
+      subscriberInstance.address,
+      accounts[1],
+      blocknumber,
+      digest
+    )
 
-    const data = params.reduce((acc, cur) => (acc += cur.substring(2)), '0x' + sig.signature)
+    const data = createPayload(params, sig.signature)
 
     // NOTE: threadId is not included in signature, which means that messages can be replayed across threads!
     // i.e. the relayer can change the threadId without the subscriber knowing
     // also, this needs to be updated in the publisher when allowing subscribers to verify hooks
-    await subscriberInstance.verifyHook(data, 1, 2, BLOCKHEIGHT)
+    await subscriberInstance.verifyHook(data, 1, 2, blocknumber)
 
     const nonceCheck = await subscriberInstance.currentNonce.call()
 
@@ -375,11 +395,18 @@ contract('Subscriber', (accounts) => {
   it('should pay the correct relayer fee', async function () {
     const balanceBefore = await web3.eth.getBalance(accounts[0])
 
-    const sig = await getTypedData(1, 4, subscriberInstance.address, accounts[1], BLOCKHEIGHT)
+    const sig = await getTypedData(
+      1,
+      4,
+      subscriberInstance.address,
+      accounts[1],
+      blocknumber,
+      digest
+    )
 
-    const data = params.reduce((acc, cur) => (acc += cur.substring(2)), '0x' + sig.signature)
+    const data = createPayload(params, sig.signature)
 
-    const txResult = await subscriberInstance.verifyHook(data, 1, 4, BLOCKHEIGHT)
+    const txResult = await subscriberInstance.verifyHook(data, 1, 4, blocknumber)
 
     const balanceAfter = await web3.eth.getBalance(accounts[0])
 
@@ -396,25 +423,61 @@ contract('Subscriber', (accounts) => {
     assert.equal(feeReceived, feeExpected)
   })
 
-  it('should prevent against re-entrancy and replay attacks', async function () {
-    const sig = await getTypedData(1, 4, subscriberInstance.address, accounts[1], BLOCKHEIGHT)
-    const data = params.reduce((acc, cur) => (acc += cur.substring(2)), '0x' + sig.signature)
+  it('should prevent against re-entrancy and replay attacks (nonce re-use)', async function () {
+    const sig = await getTypedData(
+      1,
+      4,
+      subscriberInstance.address,
+      accounts[1],
+      blocknumber,
+      digest
+    )
+    const data = createPayload(params, sig.signature)
 
     try {
-      await subscriberInstance.verifyHook(data, 1, 4, BLOCKHEIGHT)
+      await subscriberInstance.verifyHook(data, 1, 4, blocknumber)
     } catch (e) {
       assert.include(e.message, 'Obsolete hook detected')
     }
   })
 
-  it('should detect invalid hooks', async function () {
-    const sig = await getTypedData(1, 2, subscriberInstance.address, accounts[4], BLOCKHEIGHT)
+  it('should detect invalid publishers', async function () {
+    const sig = await getTypedData(
+      1,
+      5,
+      subscriberInstance.address,
+      accounts[4],
+      blocknumber,
+      digest
+    )
+    const data = createPayload(params, sig.signature)
+
+    try {
+      await subscriberInstance.verifyHook(data, 1, 5, blocknumber)
+    } catch (e) {
+      assert.include(e.message, 'Publisher not valid')
+    }
+  })
+
+  it('should detect when hook not valid yet', async function () {
+    const sig = await getTypedData(1, 6, subscriberInstance.address, accounts[1], 10, digest)
     const data = params.reduce((acc, cur) => (acc += cur.substring(2)), '0x' + sig.signature)
 
     try {
-      await subscriberInstance.verifyHook(data, 1, 2, BLOCKHEIGHT)
+      await subscriberInstance.verifyHook(data, 1, 6, 10)
     } catch (e) {
-      assert.include(e.message, 'Obsolete hook detected')
+      assert.include(e.message, 'Hook event not valid yet')
+    }
+  })
+
+  it('should detect when hook has expired', async function () {
+    const sig = await getTypedData(1, 6, subscriberInstance.address, accounts[1], 4, digest)
+    const data = createPayload(params, sig.signature)
+
+    try {
+      await subscriberInstance.verifyHook(data, 1, 6, 4)
+    } catch (e) {
+      assert.include(e.message, 'Hook event has expired')
     }
   })
 })
