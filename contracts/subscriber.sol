@@ -9,10 +9,11 @@ contract Subscriber is ISubscriber, Ownable {
     uint256 public constant MAX_AGE = 3;
     uint256 public constant STARTING_GAS = 21000;
     uint256 public constant VERIFY_HOOK_ENTRY_GAS = 8000;
+    uint256 public constant VERIFY_HOOK_GAS_COST = 30000;
     uint256 public constant MAX_GAS_PRICE = 10000000000;
 
     uint256 public constant MAX_GAS_ALLOWED =
-        STARTING_GAS + VERIFY_HOOK_ENTRY_GAS;
+        STARTING_GAS + VERIFY_HOOK_ENTRY_GAS + VERIFY_HOOK_GAS_COST;
 
     event ValueReceived(address user, uint256 amount);
 
@@ -41,23 +42,6 @@ contract Subscriber is ISubscriber, Ownable {
         keccak256(
             "Hook(bytes32 payload,uint256 nonce,uint256 blockheight,uint256 threadId)"
         );
-
-    bytes32 private domainHash;
-
-    constructor() {
-        currentNonce = 1;
-
-        domainHash = keccak256(
-            abi.encode(
-                DOMAIN_TYPEHASH,
-                DOMAIN_NAME_HASH,
-                DOMAIN_VERSION_HASH,
-                block.chainid,
-                address(this), // <-- this has to be the publisher adress - otherwise you'd need a different signature for every subscriber!!
-                DOMAIN_SALT
-            )
-        );
-    }
 
     function addPublisher(address publisherAddress, uint256 threadId)
         public
@@ -91,6 +75,17 @@ contract Subscriber is ISubscriber, Ownable {
 
         bytes32 messageHash = keccak256(
             abi.encode(TYPE_HASH, message, nonce, blockheight, threadId)
+        );
+
+        bytes32 domainHash = keccak256(
+            abi.encode(
+                DOMAIN_TYPEHASH,
+                DOMAIN_NAME_HASH,
+                DOMAIN_VERSION_HASH,
+                block.chainid,
+                publisher,
+                DOMAIN_SALT
+            )
         );
 
         bytes32 digest = keccak256(

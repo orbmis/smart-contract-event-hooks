@@ -60,7 +60,7 @@ async function getTypedData(
       name: 'Hook',
       version: '1',
       chainId,
-      verifyingContract,
+      verifyingContract: publisherAddress,
       salt,
     },
     primaryType: 'Hook',
@@ -407,7 +407,7 @@ contract('Subscriber', (accounts) => {
 
     const sig = await getTypedData(
       1,
-      4,
+      3,
       subscriberInstance.address,
       accounts[1],
       blocknumber,
@@ -416,7 +416,7 @@ contract('Subscriber', (accounts) => {
 
     const data = createPayload(params, sig.signature)
 
-    const txResult = await subscriberInstance.verifyHook(accounts[1], data, 1, 4, blocknumber)
+    const txResult = await subscriberInstance.verifyHook(accounts[1], data, 1, 3, blocknumber)
 
     const balanceAfter = await web3.eth.getBalance(accounts[0])
 
@@ -436,7 +436,7 @@ contract('Subscriber', (accounts) => {
   it('should prevent against re-entrancy and replay attacks (nonce re-use)', async function () {
     const sig = await getTypedData(
       1,
-      4,
+      3,
       subscriberInstance.address,
       accounts[1],
       blocknumber,
@@ -445,7 +445,7 @@ contract('Subscriber', (accounts) => {
     const data = createPayload(params, sig.signature)
 
     try {
-      await subscriberInstance.verifyHook(accounts[1], data, 1, 4, blocknumber)
+      await subscriberInstance.verifyHook(accounts[1], data, 1, 3, blocknumber)
     } catch (e) {
       assert.include(e.message, 'Obsolete hook detected')
     }
@@ -454,7 +454,7 @@ contract('Subscriber', (accounts) => {
   it('should detect invalid publishers', async function () {
     const sig = await getTypedData(
       1,
-      5,
+      4,
       subscriberInstance.address,
       accounts[4],
       blocknumber,
@@ -463,29 +463,29 @@ contract('Subscriber', (accounts) => {
     const data = createPayload(params, sig.signature)
 
     try {
-      await subscriberInstance.verifyHook(accounts[4], data, 1, 5, blocknumber)
+      await subscriberInstance.verifyHook(accounts[4], data, 1, 4, blocknumber)
     } catch (e) {
       assert.include(e.message, 'Publisher not valid')
     }
   })
 
   it('should detect when hook not valid yet', async function () {
-    const sig = await getTypedData(1, 6, subscriberInstance.address, accounts[1], 10, digest)
+    const sig = await getTypedData(1, 5, subscriberInstance.address, accounts[1], 10, digest)
     const data = params.reduce((acc, cur) => (acc += cur.substring(2)), '0x' + sig.signature)
 
     try {
-      await subscriberInstance.verifyHook(accounts[1], data, 1, 6, 10)
+      await subscriberInstance.verifyHook(accounts[1], data, 1, 5, 10)
     } catch (e) {
       assert.include(e.message, 'Hook event not valid yet')
     }
   })
 
   it('should detect when hook has expired', async function () {
-    const sig = await getTypedData(1, 6, subscriberInstance.address, accounts[1], 4, digest)
+    const sig = await getTypedData(1, 5, subscriberInstance.address, accounts[1], 4, digest)
     const data = createPayload(params, sig.signature)
 
     try {
-      await subscriberInstance.verifyHook(accounts[1], data, 1, 6, 4)
+      await subscriberInstance.verifyHook(accounts[1], data, 1, 5, 4)
     } catch (e) {
       assert.include(e.message, 'Hook event has expired')
     }
