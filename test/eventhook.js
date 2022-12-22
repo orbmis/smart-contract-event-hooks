@@ -7,6 +7,7 @@ const { assert } = require('chai')
 const Registry = artifacts.require('Registry')
 const Publisher = artifacts.require('Publisher')
 const Subscriber = artifacts.require('Subscriber')
+const SubscriberTwo = artifacts.require('SubscriberTwo')
 
 const digest = web3.utils.soliditySha3(
   { type: 'bytes32', value: web3.utils.keccak256('one') },
@@ -120,7 +121,10 @@ contract('Publisher', (accounts) => {
   })
 
   it('should verify that a publisher permits regitration of a hook', async () => {
-    const verifyHookResult = await publisherInstance.verifyEventHookRegistration.call(1, accounts[1])
+    const verifyHookResult = await publisherInstance.verifyEventHookRegistration.call(
+      1,
+      accounts[1]
+    )
 
     assert.isTrue(verifyHookResult)
   })
@@ -138,13 +142,16 @@ contract('Publisher', (accounts) => {
       return (ev.digest = digest && ev.threadId.toNumber() === 1)
     })
 
-    const verifyHookResult = await publisherInstance.verifyEventHookRegistration.call(1, accounts[1])
+    const verifyHookResult = await publisherInstance.verifyEventHookRegistration.call(
+      1,
+      accounts[1]
+    )
 
     assert.isTrue(verifyHookResult)
   })
 
   it('should verify a hook that was previously fired', async () => {
-    const verifyHook = await publisherInstance.verifyEventHook.call(digest, 1, 1, 5)
+    const verifyHook = await publisherInstance.verifyEventHook.call(digest, 1, 1, 6)
 
     assert.isTrue(verifyHook)
   })
@@ -163,6 +170,7 @@ contract('Registry', (accounts) => {
 
   it('should add a publisher / hook to the registry', async () => {
     await publisherInstance.addHook(1, accounts[1], { from: accounts[0] })
+
     const registerHookResult = await registryInstance.registerHook(publisherInstance.address, 1, {
       from: accounts[1],
     })
@@ -387,7 +395,7 @@ contract('Subscriber', (accounts) => {
     // NOTE: threadId is not included in signature, which means that messages can be replayed across threads!
     // i.e. the relayer can change the threadId without the subscriber knowing
     // also, this needs to be updated in the publisher when allowing subscribers to verify hooks
-    await subscriberInstance.verifyHook(publisherAddress, data, 1, 2, blocknumber)
+    const tx = await subscriberInstance.verifyHook(accounts[1], data, 1, 2, blocknumber)
 
     const nonceCheck = await subscriberInstance.currentNonce.call()
 
@@ -408,7 +416,7 @@ contract('Subscriber', (accounts) => {
 
     const data = createPayload(params, sig.signature)
 
-    const txResult = await subscriberInstance.verifyHook(publisherAddress, data, 1, 4, blocknumber)
+    const txResult = await subscriberInstance.verifyHook(accounts[1], data, 1, 4, blocknumber)
 
     const balanceAfter = await web3.eth.getBalance(accounts[0])
 
@@ -437,7 +445,7 @@ contract('Subscriber', (accounts) => {
     const data = createPayload(params, sig.signature)
 
     try {
-      await subscriberInstance.verifyHook(publisherAddress, data, 1, 4, blocknumber)
+      await subscriberInstance.verifyHook(accounts[1], data, 1, 4, blocknumber)
     } catch (e) {
       assert.include(e.message, 'Obsolete hook detected')
     }
@@ -455,7 +463,7 @@ contract('Subscriber', (accounts) => {
     const data = createPayload(params, sig.signature)
 
     try {
-      await subscriberInstance.verifyHook(publisherAddress, data, 1, 5, blocknumber)
+      await subscriberInstance.verifyHook(accounts[4], data, 1, 5, blocknumber)
     } catch (e) {
       assert.include(e.message, 'Publisher not valid')
     }
@@ -466,7 +474,7 @@ contract('Subscriber', (accounts) => {
     const data = params.reduce((acc, cur) => (acc += cur.substring(2)), '0x' + sig.signature)
 
     try {
-      await subscriberInstance.verifyHook(publisherAddress, data, 1, 6, 10)
+      await subscriberInstance.verifyHook(accounts[1], data, 1, 6, 10)
     } catch (e) {
       assert.include(e.message, 'Hook event not valid yet')
     }
@@ -477,9 +485,57 @@ contract('Subscriber', (accounts) => {
     const data = createPayload(params, sig.signature)
 
     try {
-      await subscriberInstance.verifyHook(publisherAddress, data, 1, 6, 4)
+      await subscriberInstance.verifyHook(accounts[1], data, 1, 6, 4)
     } catch (e) {
       assert.include(e.message, 'Hook event has expired')
     }
+  })
+})
+
+// TODO: create a new version of contract that does check signature but instead "phones home"
+contract('Subscriber Two', (accounts) => {
+  let subscriberTwoInstance, publisherInstance, data
+
+  beforeEach(async () => {
+    publisherInstance = await Publisher.deployed()
+    subscriberTwoInstance = await SubscriberTwo.deployed()
+  })
+
+  it('should allow subscriber owner to add publisher', async function () {
+    await publisherInstance.addHook(1, accounts[1], { from: accounts[0] })
+
+    data = params.reduce((acc, cur) => (acc += cur.substring(2)), '0x')
+
+    await publisherInstance.fireHook(data, digest, 1)
+
+    await web3.eth.sendTransaction({
+      from: accounts[0],
+      to: subscriberTwoInstance.address,
+      value: web3.utils.toWei('1', 'ether'),
+    })
+
+    const tx = await subscriberTwoInstance.addPublisher(publisherInstance.address, 1)
+
+    blocknumber = tx.receipt.blockNumber
+
+    const publishersCheck = await subscriberTwoInstance.getPublisherNonce(
+      publisherInstance.address,
+      1
+    )
+
+    assert.equal(publishersCheck, 1)
+  })
+
+  it('should verify incoming hooks', async function () {
+    params.reduce((acc, cur) => (acc += cur.substring(2)), '0x')
+
+    await subscriberTwoInstance.verifyHook(publisherInstance.address, data, 1, 1, 6)
+
+    const nonceCheck = await subscriberTwoInstance.currentNonce.call()
+
+    assert.equal(nonceCheck.toNumber(), 1)
+  })
+
+  it('should record nonce properly', async function () {
   })
 })

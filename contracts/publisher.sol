@@ -15,7 +15,8 @@ contract Publisher is IPublisher, Ownable {
         uint256 indexed threadId,
         uint256 indexed nonce,
         bytes32 digest,
-        bytes payload
+        bytes payload,
+        bytes32 checksum
     );
 
     mapping(uint256 => address) public hooks;
@@ -31,7 +32,7 @@ contract Publisher is IPublisher, Ownable {
 
         firedHooks[threadId][hookNonce] = checksum;
 
-        emit Hook(threadId, hookNonce, digest, payload);
+        emit Hook(threadId, hookNonce, digest, payload, checksum);
     }
 
     function addHook(uint256 threadId, address publisherPubKey)
@@ -54,7 +55,9 @@ contract Publisher is IPublisher, Ownable {
         uint256 nonce,
         uint256 blockheight
     ) external view returns (bool) {
-        bytes32 checksum = keccak256(abi.encodePacked(payloadhash, blockheight));
+        bytes32 checksum = keccak256(
+            abi.encodePacked(payloadhash, blockheight)
+        );
 
         bool result = firedHooks[threadId][nonce] == checksum;
 
