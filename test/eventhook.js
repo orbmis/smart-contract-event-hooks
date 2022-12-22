@@ -26,16 +26,8 @@ const MAX_GAS = 500000
 const MAX_GAS_PRICE = 40
 
 let blocknumber
-let publisherAddress
 
-async function getTypedData(
-  threadId,
-  nonce,
-  verifyingContract,
-  publisherAddress,
-  blockheight,
-  payload
-) {
+async function getTypedData(threadId, nonce, publisherAddress, blockheight, payload) {
   const chainId = await web3.eth.getChainId()
 
   const salt = '0x5db5bd0cd6f41d9d705525bc4773e06c1cdcb68185b4e00b0b26cc7d2e23761d'
@@ -381,14 +373,7 @@ contract('Subscriber', (accounts) => {
   })
 
   it('should verify incoming hooks', async function () {
-    const sig = await getTypedData(
-      1,
-      2,
-      subscriberInstance.address,
-      accounts[1],
-      blocknumber,
-      digest
-    )
+    const sig = await getTypedData(1, 2, accounts[1], blocknumber, digest)
 
     const data = createPayload(params, sig.signature)
 
@@ -405,14 +390,7 @@ contract('Subscriber', (accounts) => {
   it('should pay the correct relayer fee', async function () {
     const balanceBefore = await web3.eth.getBalance(accounts[0])
 
-    const sig = await getTypedData(
-      1,
-      3,
-      subscriberInstance.address,
-      accounts[1],
-      blocknumber,
-      digest
-    )
+    const sig = await getTypedData(1, 3, accounts[1], blocknumber, digest)
 
     const data = createPayload(params, sig.signature)
 
@@ -434,14 +412,7 @@ contract('Subscriber', (accounts) => {
   })
 
   it('should prevent against re-entrancy and replay attacks (nonce re-use)', async function () {
-    const sig = await getTypedData(
-      1,
-      3,
-      subscriberInstance.address,
-      accounts[1],
-      blocknumber,
-      digest
-    )
+    const sig = await getTypedData(1, 3, accounts[1], blocknumber, digest)
     const data = createPayload(params, sig.signature)
 
     try {
@@ -452,14 +423,7 @@ contract('Subscriber', (accounts) => {
   })
 
   it('should detect invalid publishers', async function () {
-    const sig = await getTypedData(
-      1,
-      4,
-      subscriberInstance.address,
-      accounts[4],
-      blocknumber,
-      digest
-    )
+    const sig = await getTypedData(1, 4, accounts[4], blocknumber, digest)
     const data = createPayload(params, sig.signature)
 
     try {
@@ -470,7 +434,7 @@ contract('Subscriber', (accounts) => {
   })
 
   it('should detect when hook not valid yet', async function () {
-    const sig = await getTypedData(1, 5, subscriberInstance.address, accounts[1], 10, digest)
+    const sig = await getTypedData(1, 5, accounts[1], 10, digest)
     const data = params.reduce((acc, cur) => (acc += cur.substring(2)), '0x' + sig.signature)
 
     try {
@@ -481,7 +445,7 @@ contract('Subscriber', (accounts) => {
   })
 
   it('should detect when hook has expired', async function () {
-    const sig = await getTypedData(1, 5, subscriberInstance.address, accounts[1], 4, digest)
+    const sig = await getTypedData(1, 5, accounts[1], 4, digest)
     const data = createPayload(params, sig.signature)
 
     try {
@@ -536,6 +500,5 @@ contract('Subscriber Two', (accounts) => {
     assert.equal(nonceCheck.toNumber(), 1)
   })
 
-  it('should record nonce properly', async function () {
-  })
+  it('should record nonce properly', async function () {})
 })
