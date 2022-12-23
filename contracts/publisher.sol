@@ -6,7 +6,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "./IPublisher.sol";
 
 contract Publisher is IPublisher, Ownable {
-    uint256 public hookNonce;
+    uint256 public hookNonce = 1;
 
     // mappoing of threadId to nonce to digest (payload data hash)
     mapping(uint256 => mapping(uint256 => bytes32)) public firedHooks;
@@ -26,6 +26,8 @@ contract Publisher is IPublisher, Ownable {
         bytes32 digest,
         uint256 threadId
     ) public onlyOwner {
+        // nonces should be initiated to 1,
+        // therefore first hook's nonce will always be 2
         hookNonce++;
 
         bytes32 checksum = keccak256(abi.encodePacked(digest, block.number));

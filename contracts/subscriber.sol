@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "./ISubscriber.sol";
 
 contract Subscriber is ISubscriber, Ownable {
+    uint256 public constant RELAYER_FEE = 0.001 ether;
     uint256 public constant MAX_AGE = 3;
     uint256 public constant STARTING_GAS = 21000;
     uint256 public constant VERIFY_HOOK_ENTRY_GAS = 8000;
@@ -17,14 +18,8 @@ contract Subscriber is ISubscriber, Ownable {
 
     event ValueReceived(address user, uint256 amount);
 
-    event HookVerified(address publisher, address signer);
-
     // mapping of publisher address to threadId to nonce
     mapping(address => mapping(uint256 => uint256)) public validPublishers;
-
-    uint256 public currentNonce;
-
-    uint256 private constant RELAYER_FEE = 0.001 ether;
 
     bytes32 private constant DOMAIN_TYPEHASH =
         keccak256(
@@ -43,11 +38,14 @@ contract Subscriber is ISubscriber, Ownable {
             "Hook(bytes32 payload,uint256 nonce,uint256 blockheight,uint256 threadId)"
         );
 
-    function addPublisher(address publisherAddress, uint256 threadId)
-        public
-        onlyOwner
-    {
-        validPublishers[publisherAddress][threadId] = 1;
+    function updateValidPublishers(
+        address publisherAddress,
+        uint256 threadId,
+        uint256 nonce
+    ) public onlyOwner {
+        require(nonce > 0, "nonce must be greater than zero");
+
+        validPublishers[publisherAddress][threadId] = nonce;
     }
 
     function getPublisherNonce(address publisherAddress, uint256 threadId)
@@ -101,21 +99,19 @@ contract Subscriber is ISubscriber, Ownable {
             bytes32(payload[32:64])
         );
 
-        emit HookVerified(publisher, signer);
-
         // checks
-        require(nonce > currentNonce, "Obsolete hook detected");
+        require(
+            nonce > validPublishers[signer][threadId],
+            "Obsolete hook detected"
+        );
         require(signer == publisher, "Publisher not signer");
         require(validPublishers[signer][threadId] != 0, "Publisher not valid");
         require(tx.gasprice <= MAX_GAS_PRICE, "Gas price is too high");
         require(blockheight < block.number, "Hook event not valid yet");
-        require(
-            (block.number - blockheight) < MAX_AGE,
-            "Hook event has expired"
-        );
+        require((block.number - blockheight) < MAX_AGE, "Hook has expired");
 
         // effects
-        currentNonce = nonce;
+        validPublishers[signer][threadId] = nonce;
 
         // interactions
         (bool result, ) = msg.sender.call{value: RELAYER_FEE}("");

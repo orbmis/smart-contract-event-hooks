@@ -7,6 +7,7 @@ import "./ISubscriber.sol";
 import "./IPublisher.sol";
 
 contract SubscriberTwo is ISubscriber, Ownable {
+    uint256 public constant RELAYER_FEE = 0.001 ether;
     uint256 public constant MAX_AGE = 4;
     uint256 public constant STARTING_GAS = 21000;
     uint256 public constant VERIFY_HOOK_ENTRY_GAS = 8000;
@@ -21,55 +22,22 @@ contract SubscriberTwo is ISubscriber, Ownable {
     // mapping of publisher address to threadId to nonce
     mapping(address => mapping(uint256 => uint256)) public validPublishers;
 
-    uint256 public currentNonce;
+    function updateValidPublishers(
+        address publisher,
+        uint256 threadId,
+        uint256 nonce
+    ) public onlyOwner {
+        require(nonce > 0, "nonce must be greater than zero");
 
-    uint256 private constant RELAYER_FEE = 0.001 ether;
-
-    bytes32 private constant DOMAIN_TYPEHASH =
-        keccak256(
-            "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract,bytes32 salt)"
-        );
-
-    bytes32 private constant DOMAIN_SALT =
-        0x5db5bd0cd6f41d9d705525bc4773e06c1cdcb68185b4e00b0b26cc7d2e23761d;
-
-    bytes32 private constant DOMAIN_NAME_HASH = keccak256("Hook");
-
-    bytes32 private constant DOMAIN_VERSION_HASH = keccak256("1");
-
-    bytes32 private constant TYPE_HASH =
-        keccak256(
-            "Hook(bytes32 payload,uint256 nonce,uint256 blockheight,uint256 threadId)"
-        );
-
-    bytes32 private domainHash;
-
-    constructor() {
-        domainHash = keccak256(
-            abi.encode(
-                DOMAIN_TYPEHASH,
-                DOMAIN_NAME_HASH,
-                DOMAIN_VERSION_HASH,
-                block.chainid,
-                address(this),
-                DOMAIN_SALT
-            )
-        );
+        validPublishers[publisher][threadId] = nonce;
     }
 
-    function addPublisher(address publisherAddress, uint256 threadId)
-        public
-        onlyOwner
-    {
-        validPublishers[publisherAddress][threadId] = 1;
-    }
-
-    function getPublisherNonce(address publisherAddress, uint256 threadId)
+    function getPublisherNonce(address publisher, uint256 threadId)
         public
         view
         returns (uint256)
     {
-        return validPublishers[publisherAddress][threadId];
+        return validPublishers[publisher][threadId];
     }
 
     receive() external payable {
@@ -94,17 +62,21 @@ contract SubscriberTwo is ISubscriber, Ownable {
 
         // checks
         require(isHookValid, "Hook not verified by publisher");
-        require(nonce > currentNonce, "Obsolete hook detected");
         require(
-            validPublishers[publisher][threadId] != 0,
-            "Publisher not valid"
+            nonce > validPublishers[publisher][threadId],
+            "Obsolete hook detected"
         );
         require(tx.gasprice <= MAX_GAS_PRICE, "Gas price is too high");
         require(blockheight < block.number, "Hook event not valid yet");
         require((block.number - blockheight) < MAX_AGE, "Hook has expired");
 
+        require(
+            validPublishers[publisher][threadId] != 0,
+            "Publisher not valid"
+        );
+
         // effects
-        currentNonce = nonce;
+        validPublishers[publisher][threadId] = nonce;
 
         // interactions
         (bool result, ) = msg.sender.call{value: RELAYER_FEE}("");

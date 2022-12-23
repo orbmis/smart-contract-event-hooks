@@ -25,8 +25,6 @@ const FEE = 460000
 const MAX_GAS = 500000
 const MAX_GAS_PRICE = 40
 
-let blocknumber
-
 async function getTypedData(threadId, nonce, publisherAddress, blockheight, payload) {
   const chainId = await web3.eth.getChainId()
 
@@ -143,7 +141,7 @@ contract('Publisher', (accounts) => {
   })
 
   it('should verify a hook that was previously fired', async () => {
-    const verifyHook = await publisherInstance.verifyEventHook.call(digest, 1, 1, 6)
+    const verifyHook = await publisherInstance.verifyEventHook.call(digest, 1, 2, 6)
 
     assert.isTrue(verifyHook)
   })
@@ -342,7 +340,7 @@ contract('Registry', (accounts) => {
 })
 
 contract('Subscriber', (accounts) => {
-  let subscriberInstance
+  let subscriberInstance, blocknumber
 
   beforeEach(async () => {
     subscriberInstance = await Subscriber.deployed()
@@ -355,7 +353,7 @@ contract('Subscriber', (accounts) => {
       value: web3.utils.toWei('1', 'ether'),
     })
 
-    const tx = await subscriberInstance.addPublisher(accounts[1], 1)
+    const tx = await subscriberInstance.updateValidPublishers(accounts[1], 1, 1)
 
     blocknumber = tx.receipt.blockNumber
 
@@ -366,7 +364,7 @@ contract('Subscriber', (accounts) => {
 
   it('should prevent others from adding publishers', async function () {
     try {
-      await subscriberInstance.addPublisher(accounts[2], 1, { from: accounts[1] })
+      await subscriberInstance.updateValidPublishers(accounts[2], 1, 1, { from: accounts[1] })
     } catch (e) {
       assert.include(e.message, 'Ownable: caller is not the owner')
     }
@@ -382,7 +380,7 @@ contract('Subscriber', (accounts) => {
     // also, this needs to be updated in the publisher when allowing subscribers to verify hooks
     const tx = await subscriberInstance.verifyHook(accounts[1], data, 1, 2, blocknumber)
 
-    const nonceCheck = await subscriberInstance.currentNonce.call()
+    const nonceCheck = await subscriberInstance.getPublisherNonce.call(accounts[1], 1)
 
     assert.equal(nonceCheck.toNumber(), 2)
   })
@@ -451,14 +449,14 @@ contract('Subscriber', (accounts) => {
     try {
       await subscriberInstance.verifyHook(accounts[1], data, 1, 5, 4)
     } catch (e) {
-      assert.include(e.message, 'Hook event has expired')
+      assert.include(e.message, 'Hook has expired')
     }
   })
 })
 
 // TODO: create a new version of contract that does check signature but instead "phones home"
 contract('Subscriber Two', (accounts) => {
-  let subscriberTwoInstance, publisherInstance, data
+  let subscriberTwoInstance, publisherInstance, blocknumber, data
 
   beforeEach(async () => {
     publisherInstance = await Publisher.deployed()
@@ -478,7 +476,7 @@ contract('Subscriber Two', (accounts) => {
       value: web3.utils.toWei('1', 'ether'),
     })
 
-    const tx = await subscriberTwoInstance.addPublisher(publisherInstance.address, 1)
+    const tx = await subscriberTwoInstance.updateValidPublishers(publisherInstance.address, 1, 1)
 
     blocknumber = tx.receipt.blockNumber
 
@@ -493,11 +491,14 @@ contract('Subscriber Two', (accounts) => {
   it('should verify incoming hooks', async function () {
     params.reduce((acc, cur) => (acc += cur.substring(2)), '0x')
 
-    await subscriberTwoInstance.verifyHook(publisherInstance.address, data, 1, 1, 6)
+    await subscriberTwoInstance.verifyHook(publisherInstance.address, data, 1, 2, 6)
 
-    const nonceCheck = await subscriberTwoInstance.currentNonce.call()
+    const nonceCheck = await subscriberTwoInstance.getPublisherNonce.call(
+      publisherInstance.address,
+      1
+    )
 
-    assert.equal(nonceCheck.toNumber(), 1)
+    assert.equal(nonceCheck.toNumber(), 2)
   })
 
   it('should record nonce properly', async function () {})
