@@ -11,16 +11,18 @@ contract Subscriber is ISubscriber, Ownable {
     uint256 public constant MAX_AGE = 4;
     uint256 public constant STARTING_GAS = 21000;
     uint256 public constant VERIFY_HOOK_ENTRY_GAS = 8000;
-    uint256 public constant VERIFY_HOOK_GAS_COST = 30000;
+    uint256 public constant VERIFY_HOOK_GAS_COST = 60000;
     uint256 public constant MAX_GAS_PRICE = 10000000000;
 
     uint256 public constant MAX_GAS_ALLOWED =
         STARTING_GAS + VERIFY_HOOK_ENTRY_GAS + VERIFY_HOOK_GAS_COST;
 
-    event ValueReceived(address user, uint256 amount);
-
     // mapping of publisher address to threadId to nonce
     mapping(address => mapping(uint256 => uint256)) public validPublishers;
+
+    bytes32[3] public currentState;
+
+    receive() external payable {}
 
     function updateValidPublishers(
         address publisher,
@@ -38,10 +40,6 @@ contract Subscriber is ISubscriber, Ownable {
         returns (uint256)
     {
         return validPublishers[publisher][threadId];
-    }
-
-    receive() external payable {
-        emit ValueReceived(msg.sender, msg.value);
     }
 
     function verifyHook(
@@ -77,6 +75,10 @@ contract Subscriber is ISubscriber, Ownable {
 
         // effects
         validPublishers[publisher][threadId] = nonce;
+
+        currentState[0] = bytes32(payload[:32]);
+        currentState[1] = bytes32(payload[32:64]);
+        currentState[2] = bytes32(payload[64:96]);
 
         // interactions
         (bool result, ) = msg.sender.call{value: RELAYER_FEE}("");

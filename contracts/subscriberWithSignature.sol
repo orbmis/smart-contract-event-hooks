@@ -16,8 +16,6 @@ contract SubscriberWithSignature is ISubscriber, Ownable {
     uint256 public constant MAX_GAS_ALLOWED =
         STARTING_GAS + VERIFY_HOOK_ENTRY_GAS + VERIFY_HOOK_GAS_COST;
 
-    event ValueReceived(address user, uint256 amount);
-
     // mapping of publisher address to threadId to nonce
     mapping(address => mapping(uint256 => uint256)) public validPublishers;
 
@@ -38,6 +36,8 @@ contract SubscriberWithSignature is ISubscriber, Ownable {
             "Hook(bytes32 payload,uint256 nonce,uint256 blockheight,uint256 threadId)"
         );
 
+    receive() external payable { }
+
     function updateValidPublishers(
         address publisherAddress,
         uint256 threadId,
@@ -54,10 +54,6 @@ contract SubscriberWithSignature is ISubscriber, Ownable {
         returns (uint256)
     {
         return validPublishers[publisherAddress][threadId];
-    }
-
-    receive() external payable {
-        emit ValueReceived(msg.sender, msg.value);
     }
 
     function verifyHook(
