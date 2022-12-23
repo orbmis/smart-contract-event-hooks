@@ -6,8 +6,8 @@ const { assert } = require('chai')
 
 const Registry = artifacts.require('Registry')
 const Publisher = artifacts.require('Publisher')
+const SubscriberWithSignature = artifacts.require('subscriberWithSignature')
 const Subscriber = artifacts.require('Subscriber')
-const SubscriberTwo = artifacts.require('SubscriberTwo')
 
 const digest = web3.utils.soliditySha3(
   { type: 'bytes32', value: web3.utils.keccak256('one') },
@@ -152,7 +152,7 @@ contract('Registry', (accounts) => {
 
   beforeEach(async () => {
     publisherInstance = await Publisher.deployed()
-    subscriberInstance = await Subscriber.deployed()
+    subscriberInstance = await SubscriberWithSignature.deployed()
     registryInstance = await Registry.deployed()
 
     publisherAddress = publisherInstance.address
@@ -343,7 +343,7 @@ contract('Subscriber', (accounts) => {
   let subscriberInstance, blocknumber
 
   beforeEach(async () => {
-    subscriberInstance = await Subscriber.deployed()
+    subscriberInstance = await SubscriberWithSignature.deployed()
   })
 
   it('should allow owner to add publisher', async function () {
@@ -460,7 +460,7 @@ contract('Subscriber Two', (accounts) => {
 
   beforeEach(async () => {
     publisherInstance = await Publisher.deployed()
-    subscriberTwoInstance = await SubscriberTwo.deployed()
+    subscriberTwoInstance = await Subscriber.deployed()
   })
 
   it('should allow subscriber owner to add publisher', async function () {
@@ -500,6 +500,4 @@ contract('Subscriber Two', (accounts) => {
 
     assert.equal(nonceCheck.toNumber(), 2)
   })
-
-  it('should record nonce properly', async function () {})
 })
