@@ -15,19 +15,15 @@ requires: 712
 
 This EIP proposes a standard for creating "hooks" that allow a smart contract function to be called automatically in response to a trigger fired by another contract, by using a public relayer network as a messaging bus.
 
-While there are many similar solutions in existence already, this proposal describes a simple yet powerful primitive that can be employed within many applications in an open, permissionless and decentralized manner.
+While there are many similar solutions in existence already, this proposal describes a simple yet powerful primitive that can be employed by many applications in an open, permissionless and decentralized manner.
 
-It relies on two interfaces, one for a publisher contract and one for a subscriber contract.  The publisher contract emits events that are picked up by "relayers", who are independent entities that subscribe to hook events on publisher contracts, and call a function on the respective subscriber contracts whenever a hook event is fired by the publisher contracts.  When a relayer calls the respective subscriber's contract with the details of the hook event emitted by the publisher contract, they are paid a fee by the subscriber.  Both the publisher and subscriber contracts are registered in a central registry smart contract that relayers can use to discover hooks.
+It relies on two interfaces, one for a publisher contract and one for a subscriber contract.  The publisher contract emits events that are picked up by "relayers", who are independent entities that subscribe to hook events on publisher contracts, and call a function on the respective subscriber contracts, whenever a hook event is fired by the publisher contracts.  When a relayer calls the respective subscriber's contract with the details of the hook event emitted by the publisher contract, they are paid a fee by the subscriber.  Both the publisher and subscriber contracts are registered in a central registry smart contract that relayers can use to discover hooks.
 
 ## Motivation
 
-There exists a number of use cases that require some off-chain party to monitor the chain and respond to on-chain events by broadcasting a transaction.  Such cases usually require some off-chain process to run alongside an Ethereum node, in order to subscribe to events via a web socket connection, and perform some logic in response to an event, by broadcasting a respective transaction to the network.  For some use-cases, this may require an Ethereum node and an open websocket connection to some long-running process that may only be used infrequently, resulting in a sub-optimal use of resources.
+There exists a number of use cases that require some off-chain party to monitor the chain and respond to on-chain events by broadcasting a transaction.  Such cases usually require some off-chain process to run alongside an Ethereum node in order to subscribe to events emitted by smart contract, and then execute some logic in response and subsequently broadcast a transaction to the network.  This requires an Ethereum node and an open websocket connection to some long-running process that may only be used infrequently, resulting in a sub-optimal use of resources.
 
-This proposal would allow for a smart contract to contain the logic it needs to respond to events without having to store that logic in some off-chain process.  The smart contract can subscribe to events fired by other smart contracts and would only execute the required logic when it is needed. This method would suit any contract logic that does not require off-chain computation, but requires an off-chain process to monitor chain state in order to call one of its functions in response.
-
-Firing hooks from publisher smart contracts still requires some off-chain impetus.  To put it another way, somebody has to pull the trigger on the publisher contract, by submitting a transaction to the publisher contract in order to emit the hook event.  This is how it works today, and this proposal doesn't change that.  Where it does offer an improvement, is that each subscriber no longer needs its own dedicated off-chain process for monitoring and responding to these events.  Instead, a single incentivized relayer can subscribe to many different events on behalf of multiple subscriber contracts.
-
-Thanks to innovations such as web3 webhooks from Moralis, web3 actions from Tenderly, or hal.xyz, creating a relayer is easier than ever.
+This proposal would allow for a smart contract to contain the logic it needs to respond to events without having to store that logic in some off-chain process.  The smart contract can subscribe to events fired by other smart contracts and would only execute the required logic when it is needed. This method would suit any contract logic that does not require off-chain computation, but usually requires an off-chain process to monitor the chain state. With this approach, subscribers do not need their own dedicated off-chain processes for monitoring and responding to contract events.  Instead, a single incentivized relayer can subscribe to many different events on behalf of multiple different subscriber contracts.
 
 Examples of use cases that would benefit from this scheme include:
 
@@ -51,7 +47,7 @@ A scheduler service can be created whereby a subscriber can register for a sched
 
 ### Coordination via Delegation
 
-Hook event payloads can contain any arbitrary data, this means you can use things like the Delegatable framework to sign off-chain delegations which can faciliate a chain of authorized entities to publish valid Hook events.  You can also use things like BLS threshold signatures.
+Hook event payloads can contain any arbitrary data, this means you can use things like the Delegatable framework to sign off-chain delegations which can faciliate a chain of authorized entities to publish valid Hook events.  You can also use things like BLS threshold signatures, to facilitate multiple off-chain publishers to authorize the firing of a Hook.
 
 ## Specification
 
@@ -116,25 +112,17 @@ The publisher contract **MAY** emit a `Hook` event without a signature, which al
 
 The payload **MAY** be passed to the function firing the event or **MAY** be generated by the contract itself, but if a signature is provided, it **MUST** sign a hash of the payload, and it is strongly recommended to use the [EIP-712](https://eips.ethereum.org/EIPS/eip-712.md) standard as described in the "Replay Attacks" section below.  This signature **SHOULD** be verified by the subscribers to ensure they are getting authentic events. The signature **MUST** correspond to the public key that was registered with the event.
 
-The payload **MUST** be passed as a byte array in calldata.  The subscriber smart contract **SHOULD** convert the byte array into the required data type.  For example, if the payload is a snark proof, the actual payload might look something like:
-
- - uint256[2] a
- - uint256[2][2] b
- - uint256[2] c
- - uint256[1] input
-
-In this case the publisher would need to serialize the variables into a bytes32 array, and the subscriber smart contract would need to deserialize it on the other end, e.g.:
+The payload **MUST** be passed as a byte array in calldata.  The subscriber smart contract **SHOULD** convert the byte array into the required data type.  For example, if the payload is a snark proof, the publisher would need to serialize the variables into a bytes32 array, and the subscriber smart contract would need to deserialize it on the other end, e.g.:
 
 ```
-a[0]     = uint256(bytes32(payload[0:32]));
-a[1]     = uint256(bytes32(payload[32:64]));
-b[0][0]  = uint256(bytes32(payload[64:96]));
-b[0][1]  = uint256(bytes32(payload[96:128]));
-b[1][0]  = uint256(bytes32(payload[128:160]));
-b[1][1]  = uint256(bytes32(payload[160:192]));
-c[0]     = uint256(bytes32(payload[192:224]));
-c[1]     = uint256(bytes32(payload[224:256]));
-input[0] = uint256(bytes32(payload[256:288]));
+struct SnarkProof {
+    uint256[2] a;
+    uint256[2][2] b;
+    uint256[2] c;
+    uint256[1] input;
+}
+
+SnarkProof memory zkproof = abi.decode(payload, Data);
 ```
 
 ### Relayers
@@ -296,289 +284,29 @@ This approach offers a more suitable alternative for when an "always-on" server 
 
 This proposal incorporates a decentralized market-driven relay network, and this decision is based on the fact that this is a highly scalable approach.  Conversely, it is possible to implement this functionality without resorting to a market-driven approach, by simply defining a standard for contracts to allow other contracts to subscribe directly.  That approach is conceptually simpler, but has its drawbacks, in so far as it requires a publisher contract to record subscribers in its own state, creating an overhead for data management, upgradeability etc.  That approach would also require the publisher to call the `verifyHook` function on each subscriber contract, which will incur potentially significant gas costs for the publisher contract.
 
-## Reference Implementation
-
-registry.sol
-
-```js
-contract Registry is IRegistry {
-    event HookRegistered(
-        address indexed publisherContract,
-        address publisherPubKey,
-        uint256 threadId,
-        address result,
-        bool valid
-    );
-
-    event HookUpdated(
-        address indexed publisherContract,
-        address publisherPubKey,
-        uint256 threadId
-    );
-
-    event SubscriberRegistered(
-        address indexed publisherContract,
-        address indexed subscriberContract,
-        uint256 threadId,
-        uint256 fee,
-        uint256 maxGas,
-        uint256 maxGasPrice,
-        uint256 chainId,
-        address feeToken
-    );
-
-    event SubscriberUpdated(
-        address indexed publisherContract,
-        address indexed subscriberContract,
-        uint256 threadId,
-        uint256 fee
-    );
-
-    /// mapping of publisherContractAddress to threadId to publisherPubKey
-    /// a publisher contract can pubish multiple different hooks on different thread ids
-    mapping(address => mapping(uint256 => address)) public publishers;
-
-    /// mapping of subscriberContractAddress to publisherContractAddress to threadIds to fee
-    /// a subscriber contract can subscribe to multiple hook events on one or more contracts
-    mapping(address => mapping(address => mapping(uint256 => uint256))) public subscribers;
-
-    /// records the owners of a subscriber contract so that updates can be authorized
-    mapping(address => address) public owners;
-
-    function registerHook(address publisherContract, uint256 threadId) public returns (bool) {
-        require(
-            (publishers[publisherContract][threadId] == address(0)),
-            "Hook already registered"
-        );
-
-        address result = IPublisher(publisherContract).getEventHook(threadId);
-
-        bool isHookValid = verifyHook(publisherContract, threadId);
-
-        require(isHookValid, "Hook not valid");
-
-        // the sender must be the account that signs the hook events
-        publishers[publisherContract][threadId] = msg.sender;
-
-        emit HookRegistered(publisherContract, msg.sender, threadId, result, isHookValid);
-
-        return true;
-    }
-
-    function verifyHook(address publisherAddress, uint256 threadId) public view returns (bool) {
-        return IPublisher(publisherAddress).verifyEventHookRegistration(threadId, msg.sender);
-    }
-
-    function updateHook(
-        address publisherContract,
-        address publisherPubKey,
-        uint256 threadId
-    ) public returns (bool) {
-        require(
-            publishers[publisherContract][threadId] == msg.sender,
-            "Not authorized to update hook"
-        );
-
-        publishers[publisherContract][threadId] = publisherPubKey;
-
-        emit HookUpdated(publisherContract, publisherPubKey, threadId);
-
-        return true;
-    }
-
-    function registerSubscriber(
-        address publisherContract,
-        address subscriberContract,
-        uint256 threadId,
-        uint256 fee,
-        uint256 maxGas,
-        uint256 maxGasPrice,
-        uint256 chainId,
-        address feeToken
-    ) public returns (bool) {
-        require(fee > 0, "Fee must be greater than 0");
-
-        require(
-            subscribers[subscriberContract][publisherContract][threadId] != fee,
-            "Subscriber already registered"
-        );
-
-        subscribers[subscriberContract][publisherContract][threadId] = fee;
-
-        owners[subscriberContract] = msg.sender;
-
-        emit SubscriberRegistered(publisherContract, subscriberContract, threadId, fee, maxGas, maxGasPrice, chainId, feeToken);
-
-        return true;
-    }
-
-    function updateSubscriber(
-        address publisherContract,
-        address subscriberContract,
-        uint256 threadId,
-        uint256 fee
-    ) public returns (bool) {
-        require(owners[subscriberContract] == msg.sender, "Not authorized to update subscriber");
-
-        subscribers[subscriberContract][publisherContract][threadId] = fee;
-
-        emit SubscriberUpdated(publisherContract, subscriberContract, threadId, fee);
-
-        return true;
-    }
-}
-```
-
-publisher.sol
-
-```js
-contract Publisher is IPublisher, Ownable {
-    uint256 public hookNonce = 1;
-
-    // mapping of threadId to nonce to digest (payload data hash)
-    mapping(uint256 => mapping(uint256 => bytes32)) public firedHooks;
-
-    event Hook(
-        uint256 indexed threadId,
-        uint256 indexed nonce,
-        bytes32 digest,
-        bytes payload,
-        bytes32 checksum
-    );
-
-    mapping(uint256 => address) public hooks;
-
-    function fireHook(
-        bytes calldata payload,
-        bytes32 digest,
-        uint256 threadId
-    ) public onlyOwner {
-        hookNonce++;
-
-        bytes32 checksum = keccak256(abi.encodePacked(digest, block.number));
-
-        firedHooks[threadId][hookNonce] = checksum;
-
-        emit Hook(threadId, hookNonce, digest, payload, checksum);
-    }
-
-    function addHook(uint256 threadId, address publisherPubKey) public onlyOwner {
-        hooks[threadId] = publisherPubKey;
-    }
-
-    function verifyEventHookRegistration(
-        uint256 threadId,
-        address publisherPubKey
-    ) public view override returns (bool) {
-        return (hooks[threadId] == publisherPubKey);
-    }
-
-    function verifyEventHook(
-        bytes32 payloadhash,
-        uint256 threadId,
-        uint256 nonce,
-        uint256 blockheight
-    ) external view returns (bool) {
-        bytes32 checksum = keccak256(abi.encodePacked(payloadhash, blockheight));
-
-        bool result = firedHooks[threadId][nonce] == checksum;
-
-        return result;
-    }
-
-    function getEventHook(uint256 threadId) public view returns (address) {
-        return hooks[threadId];
-    }
-}
-```
-
-subscriber.sol
-
-```js
-contract Subscriber is ISubscriber, Ownable {
-    uint256 public constant RELAYER_FEE = 0.001 ether;
-    uint256 public constant MAX_AGE = 4;
-    uint256 public constant STARTING_GAS = 21000;
-    uint256 public constant VERIFY_HOOK_ENTRY_GAS = 8000;
-    uint256 public constant VERIFY_HOOK_GAS_COST = 60000;
-    uint256 public constant MAX_GAS_PRICE = 10000000000;
-
-    uint256 public constant MAX_GAS_ALLOWED =
-        STARTING_GAS + VERIFY_HOOK_ENTRY_GAS + VERIFY_HOOK_GAS_COST;
-
-    // mapping of publisher address to threadId to nonce
-    mapping(address => mapping(uint256 => uint256)) public validPublishers;
-
-    receive() external payable {}
-
-    function updateValidPublishers(
-        address publisher,
-        uint256 threadId,
-        uint256 nonce
-    ) public onlyOwner {
-        require(nonce > 0, "nonce must be greater than zero");
-        validPublishers[publisher][threadId] = nonce;
-    }
-
-    function getPublisherNonce(address publisher, uint256 threadId) public view returns (uint256) {
-        return validPublishers[publisher][threadId];
-    }
-
-    function verifyHook(
-        address publisher,
-        bytes calldata payload,
-        uint256 threadId,
-        uint256 nonce,
-        uint256 blockheight
-    ) public {
-        uint256 gasStart = gasleft();
-
-        bool isHookValid = IPublisher(publisher).verifyEventHook(
-            keccak256(payload),
-            threadId,
-            nonce,
-            blockheight
-        );
-
-        // checks
-        require(isHookValid, "Hook not verified by publisher");
-        require(nonce > validPublishers[publisher][threadId], "Obsolete hook detected");
-        require(tx.gasprice <= MAX_GAS_PRICE, "Gas price is too high");
-        require(blockheight < block.number, "Hook event not valid yet");
-        require((block.number - blockheight) < MAX_AGE, "Hook has expired");
-        require(validPublishers[publisher][threadId] != 0, "Publisher not valid");
-
-        // effects
-        validPublishers[publisher][threadId] = nonce;
-
-        // interactions
-        (bool result, ) = msg.sender.call{value: RELAYER_FEE}("");
-
-        require(result, "Failed to send relayer fee");
-
-        require(
-            (gasStart - gasleft()) < MAX_GAS_ALLOWED,
-            "Function call exceeded gas allowance"
-        );
-    }
-}
-```
-
 ## Security Considerations
 
 ### Griefing attacks
 
-It is imperative that subscriber contracts trust the publisher contracts not to fire events that hold no intrinsic interest or value for them, as it is possible that malicious publisher contracts can publish a large number of events that will in turn drain the ETH from the subscriber contracts.  If the private key used to sign the hook events is ever compromised, then the potential to drain ETH from all subscriber contracts is a very real possibility.
+It is imperative that subscriber contracts trust the publisher contracts not to fire events that hold no intrinsic interest or value for them, as it is possible that malicious publisher contracts can publish a large number of events that will in turn drain the ETH from the subscriber contracts.
 
 ### Front-running attacks
 
-When using signatures to validate Hook events, it is important for publishers and subscribers of hooks to realize that it is possible for a relayer to relay hook events before they are broadcast, by examining the publisher's originating transaction in the mempool.  The normal flow is for the originating transaction to call a function in the publisher smart contract, which in turn fires an event which is then picked up by relayers.  Competitive relayers will observe that it is possible to pluck the signature from the originating transaction from the mempool and simply relay it to subscriber contracts before the originating transaction has been actually included in a block.  In fact, it is possible that the subscriber contracts process the event before the originating transaction is processed, based purely on gas fee dynamics.  This can mitigated against by subscriber contracts calling the `verifyEventHook` function on the publisher contract when they receive a Hook event.
+When using signatures to validate Hook events, it is important for publishers and subscribers of hooks to realize that it is possible for a relayer to relay hook events before they are broadcast, by examining the publisher's originating transaction in the mempool.  The normal flow is for the originating transaction to call a function in the publisher smart contract, which in turn fires an event which is then picked up by relayers.  Competitive relayers will observe that it is possible to pluck the signature from the originating transaction from the mempool and simply relay it to subscriber contracts before the originating transaction has been actually included in a block.  In fact, it is possible that the subscriber contracts process the event before the originating transaction is processed, based purely on gas fee dynamics.  This can mitigated against by subscriber contracts calling the `verifyEventHook` function on the publisher contract when they receive a Hook event.  It is for this reason that is advised that subscribers contracts verify the Hook event with the publisher contract by calling the `verifyEventHook` function on the publisher contract.
 
-Another risk from front-running affects relayers, whereby the relayer's transactions to the subscriber contracts can be front-run by generalized MEV searchers in the mempool.  It is likely that this sort of MEV capture will occur in the public mempool, and therefore it is advised that relayers use private channels to block builders to mitigate against this issue.  By broadcasting transactions to a segregated mempool, relayers protect themselves from front-running by generalized MEV bots, but their transactions can still fail due to competition from other relayers.  If two or more relayers decide to start relaying hook events from the same publisher, then the relay transactions with the highest gas price will be executed before the others.  This will result in the other relayer's transactions potentially failing on-chain, by being included later in the same block.  For now, there are certain transaction optimization services that will prevent transactions from failing on-chain, which will offer a solution to this problem, though this is out-of-scope for this document.  A future iteration of this proposal may well include the option for trusted relayers, who can enter into an on-chain enforceable agreement with subscribers, which should reduce the race-to-the-bottom competitive gas fee issue.
+Another risk from front-running affects relayers, whereby the relayer's transactions to the subscriber contracts can be front-run by generalized MEV searchers in the mempool.  It is likely that this sort of MEV capture will occur in the public mempool, and therefore it is advised that relayers use private channels to block builders to mitigate against this issue.
+
+### Relayer Competition
+
+By broadcasting transactions to a segregated mempool, relayers protect themselves from front-running by generalized MEV bots, but their transactions can still fail due to competition from other relayers.  If two or more relayers decide to start relaying hook events from the same publisher, then the relay transactions with the highest gas price will be executed before the others.  This will result in the other relayer's transactions potentially failing on-chain, by being included later in the same block.  For now, there are certain transaction optimization services that will prevent transactions from failing on-chain, which will offer a solution to this problem, though this is out-of-scope for this document.
 
 In order to cultivate and maintain a reliable relayer market, it is recommended that where possible, a subscriber contract implements logic to either rebate any gas fees up to a specified limit, (while still allowing for execution of hook updates under normal conditions), or implements a logical condition that checks that the gas price of the transaction that is calling the `verifyHook` function to ensure that the gas price does not effectively reduce the fee to zero.  This would require that the smart contract have some knowledge of the approximate gas used by the `verifyHook` function, and checks that the condition `minFee >= fee - (gasPrice * gasUsed)`.  This will mitigate against competitive bidding that would drive the _effective_ relayer fee to zero, by ensuring that there is some minimum fee below which the effective fee is not allowed to drop.  This would mean that the highest gas price that can be paid before the transaction reverts is `fee - minFee + ε` where `ε ~= 1 gwei`.  This will require careful estimation of the gas cost of the `verifyHook` function and an awareness that the gas used may change over time as the contract's state changes.
 
-Another important consideration is with batching of Hook events.  If a relayer decides to batch multiple Hook event updates to various subscriber contracts into a single transaction, via a multi-call proxy contract, then they increase the risk of the entire batching failing on-chain.  For example, if relayer A batches x number of Hook updates, and relayer B batches y number of Hook updates, it is possible that relayer A's batch is included in the same block in front of relayer B's batch, and if both batches contain at least one duplicate, (i.e. the same Hook event to the same subscriber), then this will cause relayer B entire batch transaction to revert on-chain.  This is an inportant consideration for relayers.
+A future iteration of this proposal may well include the option for trusted relayers, who can enter into an on-chain enforceable agreement with subscribers, which should reduce the race-to-the-bottom competitive gas fee issue.  There is also a design space for the creation of an auction mechanism for relayers, that would optimise the gas price and relayer fee that the subscribers would have to pay.  This is currently out of scope for this iteration of the proposal.
+
+### Relayer transaction batching
+
+Another important consideration is with batching of Hook events.  If a relayer decides to batch multiple Hook event updates to various subscriber contracts into a single transaction, via a multi-call proxy contract, then they increase the risk of the entire batching failing on-chain.  For example, if relayer A batches x number of Hook updates, and relayer B batches y number of Hook updates, it is possible that relayer A's batch is included in the same block in front of relayer B's batch, and if both batches contain at least one duplicate, (i.e. the same Hook event to the same subscriber), then this will cause relayer B's batch transaction to revert on-chain.  This is an important consideration for relayers.
 
 ### Replay attacks
 
@@ -632,7 +360,7 @@ Note: please refer to the unit tests for an example of how a hook event should b
 
 Replay attacks can also occur on the same network that the event hook was fired, by simply re-broadcasting an event hook that was already broadcast previously.  For this reason, subscriber contracts should check that a nonce is included in the event hook being received, and record the nonce in the contract's state.  If the hook nonce is not valid, or has already been recorded, the transaction should revert.
 
-It is worth noting that the `chainId` event topic should also be used to prevent cross chain replay attacks, in the case that a dapp is deployed on multiple networks.  There is also the possibility to leverage the `chainId` for more than preventing replay attacks, but also for accepting messages from other chains.
+There is also the possibility to leverage the `chainId` for more than preventing replay attacks, but also for accepting messages from other chains.
 
 ## Copyright
 
