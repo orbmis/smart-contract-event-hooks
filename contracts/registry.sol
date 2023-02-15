@@ -50,6 +50,8 @@ contract Registry is IRegistry {
     /// records the owners of a subscriber contract so that updates can be authorized
     mapping(address => address) public owners;
 
+    mapping(address => string) public relayers;
+
     function registerHook(address publisherContract, uint256 threadId)
         public
         returns (bool)
@@ -78,6 +80,19 @@ contract Registry is IRegistry {
 
         return true;
     }
+
+    function registerRelayerHandle(address relayer, string memory handle) external {
+        uint256 handleSize = bytes(relayers[relayer]).length;
+
+        require(handleSize < 65, "Handle exceeds max length of 64 bytes");
+        require(handleSize == 0 || relayer == msg.sender, "Address already registered");
+
+        relayers[relayer] = handle;
+    }
+
+    // TODO:  allow subscribers to register a trusted relayer
+    // they will only receive hook event updates from that relayer and no other
+    function registerTrustedRelayer() {}
 
     function verifyHook(address publisherAddress, uint256 threadId)
         public
