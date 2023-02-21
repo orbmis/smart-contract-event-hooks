@@ -22,7 +22,11 @@ contract Subscriber is ISubscriber, Ownable {
 
     bytes32[3] public currentState;
 
-    receive() external payable {}
+    event ValueReceived(uint256 amount, address payer);
+
+    receive() external payable {
+        emit ValueReceived(msg.value, msg.sender);
+    }
 
     function updateValidPublishers(
         address publisher,

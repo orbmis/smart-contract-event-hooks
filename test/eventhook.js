@@ -103,7 +103,7 @@ contract('Publisher', (accounts) => {
   })
 
   it('should add a hook to the publisher', async () => {
-    await publisherInstance.addHook(1, accounts[1], { from: accounts[0] })
+    await publisherInstance.addHook(1, accounts[1], ({ from: accounts[0] }))
 
     const addHookResult = await publisherInstance.hooks.call(1)
 
@@ -161,7 +161,7 @@ contract('Registry', (accounts) => {
   it('should add a publisher / hook to the registry', async () => {
     await publisherInstance.addHook(1, accounts[1], { from: accounts[0] })
 
-    const registerHookResult = await registryInstance.registerHook(publisherInstance.address, 1, {
+    const registerHookResult = await registryInstance.registerHook(publisherInstance.address, 1, '0x0', {
       from: accounts[1],
     })
 
@@ -180,7 +180,7 @@ contract('Registry', (accounts) => {
 
   it('should not allow a publisher to be added to the registry more than once', async () => {
     try {
-      await registryInstance.registerHook(publisherInstance.address, 1, {
+      await registryInstance.registerHook(publisherInstance.address, 1, '0x', {
         from: accounts[1],
       })
     } catch (e) {
@@ -190,7 +190,7 @@ contract('Registry', (accounts) => {
 
   it('should not allow an invalid hook to be added to the registry', async () => {
     try {
-      await registryInstance.registerHook(publisherInstance.address, 2, {
+      await registryInstance.registerHook(publisherInstance.address, 2, '0x0', {
         from: accounts[1],
       })
     } catch (e) {

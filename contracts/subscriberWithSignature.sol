@@ -36,7 +36,11 @@ contract SubscriberWithSignature is ISubscriber, Ownable {
             "Hook(bytes32 payload,uint256 nonce,uint256 blockheight,uint256 threadId)"
         );
 
-    receive() external payable { }
+    event ValueReceived(uint256 amount, address payer);
+
+    receive() external payable {
+        emit ValueReceived(msg.value, msg.sender);
+    }
 
     function updateValidPublishers(
         address publisherAddress,

@@ -11,7 +11,7 @@ contract Registry is IRegistry {
         address publisherPubKey,
         uint256 threadId,
         address result,
-        bool valid
+        bytes signingKey
     );
 
     event HookUpdated(
@@ -52,10 +52,11 @@ contract Registry is IRegistry {
 
     mapping(address => string) public relayers;
 
-    function registerHook(address publisherContract, uint256 threadId)
-        public
-        returns (bool)
-    {
+    function registerHook(
+        address publisherContract,
+        uint256 threadId,
+        bytes calldata signingKey
+    ) public returns (bool) {
         require(
             (publishers[publisherContract][threadId] == address(0)),
             "Hook already registered"
@@ -75,24 +76,25 @@ contract Registry is IRegistry {
             msg.sender,
             threadId,
             result,
-            isHookValid
+            signingKey
         );
 
         return true;
     }
 
-    function registerRelayerHandle(address relayer, string memory handle) external {
+    function registerRelayerHandle(address relayer, string memory handle)
+        external
+    {
         uint256 handleSize = bytes(relayers[relayer]).length;
 
-        require(handleSize < 65, "Handle exceeds max length of 64 bytes");
-        require(handleSize == 0 || relayer == msg.sender, "Address already registered");
+        require(handleSize < 65, "Handle exceeds 64 bytes");
+        require(
+            handleSize == 0 || relayer == msg.sender,
+            "Address already registered"
+        );
 
         relayers[relayer] = handle;
     }
-
-    // TODO:  allow subscribers to register a trusted relayer
-    // they will only receive hook event updates from that relayer and no other
-    function registerTrustedRelayer() {}
 
     function verifyHook(address publisherAddress, uint256 threadId)
         public

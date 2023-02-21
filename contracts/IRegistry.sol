@@ -8,10 +8,13 @@ interface IRegistry {
     /// @dev Registers a new hook event by a publisher
     /// @param publisherContract The address of the publisher contract
     /// @param threadId The id of the thread these hook events will be fired on
+    /// @param signingKey The public key that corresponds to the signature of externally generated payloads (optional)
     /// @return Returns true if the hook is successfully registered
-    function registerHook(address publisherContract, uint256 threadId)
-        external
-        returns (bool);
+    function registerHook(
+        address publisherContract,
+        uint256 threadId,
+        bytes calldata signingKey
+    ) external returns (bool);
 
     /// @dev Verifies a hook with the publisher smart contract before adding it to the registry
     /// @param publisherAddress The address of the publisher contract
