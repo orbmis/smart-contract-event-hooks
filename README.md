@@ -61,7 +61,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 ### Registering a Publisher
 
-Both the publisher and subscriber contracts **MUST** register in a specific register contract, similarly to how smart contracts register an interface in the [EIP-1820](https://eips.ethereum.org/EIPS/eip-1820.md) contract.
+Both the publisher and subscriber contracts **MUST** register in a specific register contract, similarly to how smart contracts register an interface in the [EIP-1820](https://eips.ethereum.org/EIPS/eip-1820.md) contract.  The registry contract **MUST** must use a deterministic deployment mechanism, i.e. using a factory contract and a specific salt.
 
 To register a publisher contract's hook, the `registerHook` function **MUST** be called on the registry contract.  The parameters that need to be supplied are:
 
@@ -74,6 +74,10 @@ When the `registerHook` function is called on the registry contract, the registr
 ### Updating a Publisher
 
 Publishers may want to update the details associated with a hook event, or indeed remove support for a hook event completely.  The registry contract **MUST** implement the `updatePublisher` function to allow for an existing publisher contract to be updated in the registry.  The registry contract **MUST** emit a `PublisherUpdated` event to indicate that the publisher contract was updated.
+
+### Removing a Hook
+
+To remove a previously registered subscription, the function `removeHook` function must be called on the Registry contract, with the same parameters as the `updateHook` function. The registry contract **MUST** emit a `HookRemoved` event with the same parameters as passed to the 'removeHook' function and the `msg.sender` value.
 
 ### Registering a Subscriber
 
@@ -95,6 +99,10 @@ Note that while the chain id and the token address were not included in the orig
 ### Updating a subscriber
 
 To update a subscription, the `updateSubscriber` function **MUST** be called with the same set of parameters as the `registerSubscriber` function.  This might be done in order to cancel a subscription, or to change the subscription fee. Note that the `updateSubscriber` function **MUST** maintain the same `msg.sender` that the `registerSubscriber` function was called with.
+
+### Removing a subscription
+
+To remove a previously registered subscription, the function `removeSubscriber` **MUST** be called on the Registry contract, with the same parameters as the `updateSubscriber` function, but without the `fee` parameter (i.e. publisher and subscriber contract addresses and thread id). The fee will be subsequently set to 0 to indicate that the subscriber no longer wants updates for this subscription.  The registry contract **MUST** emit a `SubscriptionRemoved` event with publisher contract address, subscriber contract address and the thread id as topics.
 
 ### Publishing an event
 
@@ -184,6 +192,17 @@ interface IRegistry {
         bytes calldata signingKey
     ) external returns (bool);
 
+    /// @dev Remove a previously registered hook event
+    /// @param publisherContract The address of the publisher contract
+    /// @param threadId The id of the thread these hook events will be fired on
+    /// @param signingKey The public key used to verify the hook signatures
+    /// @return Returns true if the hook is successfully updated
+    function removeHook(
+        address publisherContract,
+        uint256 threadId,
+        bytes calldata signingKey
+    ) external returns (bool);
+
     /// @dev Registers a subscriber to a hook event
     /// @param publisherContract The address of the publisher contract
     /// @param subscriberContract The address of the contract subscribing to the event hooks
@@ -216,6 +235,17 @@ interface IRegistry {
         address subscriberContract,
         uint256 threadId,
         uint256 fee
+    ) external returns (bool);
+
+    /// @dev Removes a subscription to a hook event
+    /// @param publisherContract The address of the publisher contract
+    /// @param subscriberContract The address of the contract subscribing to the event hooks
+    /// @param threadId The id of the thread these hook events will be fired on
+    /// @return Returns true if the subscriber is subscription removed
+    function removeSubscription(
+        address publisherContract,
+        address subscriberContract,
+        uint256 threadId
     ) external returns (bool);
 }
 ```

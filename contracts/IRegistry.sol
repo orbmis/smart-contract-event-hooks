@@ -29,12 +29,22 @@ interface IRegistry {
 
     /// @dev Update a previously registered hook event
     /// @dev Can be used to transfer hook authorization to a new address
-    /// @dev To remove a hook, transfer it to the burn address
     /// @param publisherContract The address of the publisher contract
     /// @param threadId The id of the thread these hook events will be fired on
     /// @param signingKey The public key used to verify the hook signatures
     /// @return Returns true if the hook is successfully updated
     function updateHook(
+        address publisherContract,
+        uint256 threadId,
+        bytes calldata signingKey
+    ) external returns (bool);
+
+    /// @dev Remove a previously registered hook event
+    /// @param publisherContract The address of the publisher contract
+    /// @param threadId The id of the thread these hook events will be fired on
+    /// @param signingKey The public key used to verify the hook signatures
+    /// @return Returns true if the hook is successfully updated
+    function removeHook(
         address publisherContract,
         uint256 threadId,
         bytes calldata signingKey
@@ -72,5 +82,16 @@ interface IRegistry {
         address subscriberContract,
         uint256 threadId,
         uint256 fee
+    ) external returns (bool);
+
+    /// @dev Removes a subscription to a hook event
+    /// @param publisherContract The address of the publisher contract
+    /// @param subscriberContract The address of the contract subscribing to the event hooks
+    /// @param threadId The id of the thread these hook events will be fired on
+    /// @return Returns true if the subscriber is subscription removed
+    function removeSubscription(
+        address publisherContract,
+        address subscriberContract,
+        uint256 threadId
     ) external returns (bool);
 }

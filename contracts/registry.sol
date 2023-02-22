@@ -45,6 +45,12 @@ contract Registry is IRegistry {
         uint256 fee
     );
 
+    event SubscriptionRemoved(
+        address indexed publisherContract,
+        address indexed subscriberContract,
+        uint256 threadId
+    );
+
     /// mapping of publisherContractAddress to threadId to publisherPubKey
     /// a publisher contract can pubish multiple different hooks on different thread ids
     mapping(address => mapping(uint256 => address)) public publishers;
@@ -196,6 +202,27 @@ contract Registry is IRegistry {
             subscriberContract,
             threadId,
             fee
+        );
+
+        return true;
+    }
+
+    function removeSubscription(
+        address publisherContract,
+        address subscriberContract,
+        uint256 threadId
+    ) public returns (bool) {
+        require(
+            owners[subscriberContract] == msg.sender,
+            "Not authorized to update subscriber"
+        );
+
+        subscribers[subscriberContract][publisherContract][threadId] = 0;
+
+        emit SubscriptionRemoved(
+            publisherContract,
+            subscriberContract,
+            threadId
         );
 
         return true;
