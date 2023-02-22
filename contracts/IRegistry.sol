@@ -19,22 +19,25 @@ interface IRegistry {
     /// @dev Verifies a hook with the publisher smart contract before adding it to the registry
     /// @param publisherAddress The address of the publisher contract
     /// @param threadId The id of the thread these hook events will be fired on
+    /// @param signingKey The public key used to verify the hook signatures
     /// @return Returns true if the hook is successfully verified
-    function verifyHook(address publisherAddress, uint256 threadId)
-        external
-        returns (bool);
+    function verifyHook(
+        address publisherAddress,
+        uint256 threadId,
+        bytes calldata signingKey
+    ) external returns (bool);
 
     /// @dev Update a previously registered hook event
     /// @dev Can be used to transfer hook authorization to a new address
     /// @dev To remove a hook, transfer it to the burn address
     /// @param publisherContract The address of the publisher contract
-    /// @param publisherPubKey The public key used to verify the hook signatures
     /// @param threadId The id of the thread these hook events will be fired on
+    /// @param signingKey The public key used to verify the hook signatures
     /// @return Returns true if the hook is successfully updated
     function updateHook(
         address publisherContract,
-        address publisherPubKey,
-        uint256 threadId
+        uint256 threadId,
+        bytes calldata signingKey
     ) external returns (bool);
 
     /// @dev Registers a subscriber to a hook event

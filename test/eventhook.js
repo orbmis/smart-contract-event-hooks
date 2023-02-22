@@ -103,11 +103,11 @@ contract('Publisher', (accounts) => {
   })
 
   it('should add a hook to the publisher', async () => {
-    await publisherInstance.addHook(1, accounts[1], ({ from: accounts[0] }))
+    await publisherInstance.addHook(1, accounts[1], { from: accounts[0] })
 
     const addHookResult = await publisherInstance.hooks.call(1)
 
-    assert.equal(addHookResult, accounts[1])
+    assert.equal(addHookResult, web3.utils.keccak256(accounts[1]))
   })
 
   it('should verify that a publisher permits regitration of a hook', async () => {
@@ -161,14 +161,19 @@ contract('Registry', (accounts) => {
   it('should add a publisher / hook to the registry', async () => {
     await publisherInstance.addHook(1, accounts[1], { from: accounts[0] })
 
-    const registerHookResult = await registryInstance.registerHook(publisherInstance.address, 1, '0x0', {
-      from: accounts[1],
-    })
+    const registerHookResult = await registryInstance.registerHook(
+      publisherInstance.address,
+      1,
+      accounts[1],
+      {
+        from: accounts[1],
+      }
+    )
 
     truffleAssert.eventEmitted(registerHookResult, 'HookRegistered', (ev) => {
       return (
         ev.publisherContract === publisherInstance.address &&
-        ev.publisherPubKey === accounts[1] &&
+        ev.publisherAddress === accounts[1] &&
         ev.threadId.toNumber() === 1
       )
     })
@@ -180,7 +185,7 @@ contract('Registry', (accounts) => {
 
   it('should not allow a publisher to be added to the registry more than once', async () => {
     try {
-      await registryInstance.registerHook(publisherInstance.address, 1, '0x', {
+      await registryInstance.registerHook(publisherInstance.address, 1, accounts[1], {
         from: accounts[1],
       })
     } catch (e) {
@@ -281,15 +286,15 @@ contract('Registry', (accounts) => {
   it('should allow a publisher to update an already registered hook', async () => {
     const updateHookResult = await registryInstance.updateHook(
       publisherInstance.address,
-      accounts[3],
       1,
+      accounts[3],
       { from: accounts[1] }
     )
 
     truffleAssert.eventEmitted(updateHookResult, 'HookUpdated', (ev) => {
       return (
         ev.publisherContract === publisherInstance.address,
-        ev.publisherPubKey == accounts[3],
+        ev.publisherAddress == accounts[3],
         ev.threadId == 1
       )
     })

@@ -154,25 +154,34 @@ interface IRegistry {
     /// @param threadId The id of the thread these hook events will be fired on
     /// @param signingKey The public key that corresponds to the signature of externally generated payloads (optional)
     /// @return Returns true if the hook is successfully registered
-    function registerHook(address publisherContract, uint256 threadId, bytes calldata signingKey) external returns (bool);
+    function registerHook(
+        address publisherContract,
+        uint256 threadId,
+        bytes calldata signingKey
+    ) external returns (bool);
 
     /// @dev Verifies a hook with the publisher smart contract before adding it to the registry
     /// @param publisherAddress The address of the publisher contract
     /// @param threadId The id of the thread these hook events will be fired on
+    /// @param signingKey The public key used to verify the hook signatures
     /// @return Returns true if the hook is successfully verified
-    function verifyHook(address publisherAddress, uint256 threadId) external returns (bool);
+    function verifyHook(
+        address publisherAddress,
+        uint256 threadId,
+        bytes calldata signingKey
+    ) external returns (bool);
 
     /// @dev Update a previously registered hook event
     /// @dev Can be used to transfer hook authorization to a new address
     /// @dev To remove a hook, transfer it to the burn address
     /// @param publisherContract The address of the publisher contract
-    /// @param publisherPubKey The public key used to verify the hook signatures
     /// @param threadId The id of the thread these hook events will be fired on
+    /// @param signingKey The public key used to verify the hook signatures
     /// @return Returns true if the hook is successfully updated
     function updateHook(
         address publisherContract,
-        address publisherPubKey,
-        uint256 threadId
+        uint256 threadId,
+        bytes calldata signingKey
     ) external returns (bool);
 
     /// @dev Registers a subscriber to a hook event
@@ -209,7 +218,6 @@ interface IRegistry {
         uint256 fee
     ) external returns (bool);
 }
-
 ```
 
 IPublisher.sol
@@ -222,23 +230,25 @@ interface IPublisher {
     /// @param payload The actual payload of the hook event
     /// @param digest Hash of the hook event payload that was signed
     /// @param threadId The thread number to fire the hook event on
-    function fireHook(bytes calldata payload, bytes32 digest, uint256 threadId) external;
+    function fireHook(
+        bytes calldata payload,
+        bytes32 digest,
+        uint256 threadId
+    ) external;
 
     /// @dev Adds / updates a new hook event internally
     /// @param threadId The thread id of the hook
-    /// @param publisherPubKey The public key associated with the private key that signs the hook events
-    function addHook(uint256 threadId, address publisherPubKey) external;
+    /// @param signingKey The public key associated with the private key that signs the hook events
+    function addHook(uint256 threadId, bytes calldata signingKey) external;
 
     /// @dev Called by the registry contract when registering a hook, used to verify the hook is valid before adding
     /// @param threadId The thread id of the hook
-    /// @param publisherPubKey The public key associated with the private key that signs the hook events
+    /// @param signingKey The public key associated with the private key that signs the hook events
     /// @return Returns true if the hook is valid and is ok to add to the registry
-    function verifyEventHookRegistration(uint256 threadId, address publisherPubKey) external view returns (bool);
-
-    /// @dev Returns the address that will sign the hook events on a given thread
-    /// @param threadId The thread id of the hook
-    /// @return Returns the address that will sign the hook events on a given thread
-    function getEventHook(uint256 threadId) external view returns (address);
+    function verifyEventHookRegistration(
+        uint256 threadId,
+        bytes calldata signingKey
+    ) external view returns (bool);
 
     /// @dev Returns true if the specified hook is valid
     /// @param payloadhash The hash of the hook's data payload
@@ -253,7 +263,6 @@ interface IPublisher {
         uint256 blockheight
     ) external view returns (bool);
 }
-
 ```
 
 ISubscriber.sol

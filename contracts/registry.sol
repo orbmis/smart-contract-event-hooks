@@ -8,16 +8,23 @@ import "./IPublisher.sol";
 contract Registry is IRegistry {
     event HookRegistered(
         address indexed publisherContract,
-        address publisherPubKey,
+        address publisherAddress,
         uint256 threadId,
-        address result,
         bytes signingKey
     );
 
     event HookUpdated(
         address indexed publisherContract,
-        address publisherPubKey,
-        uint256 threadId
+        address publisherAddress,
+        uint256 threadId,
+        bytes signingKey
+    );
+
+    event HookRemoved(
+        address indexed publisherContract,
+        address publisherAddress,
+        uint256 threadId,
+        bytes signingKey
     );
 
     event SubscriberRegistered(
@@ -62,20 +69,16 @@ contract Registry is IRegistry {
             "Hook already registered"
         );
 
-        address result = IPublisher(publisherContract).getEventHook(threadId);
-
-        bool isHookValid = verifyHook(publisherContract, threadId);
+        bool isHookValid = verifyHook(publisherContract, threadId, signingKey);
 
         require(isHookValid, "Hook not valid");
 
-        // the sender must be the account that signs the hook events
         publishers[publisherContract][threadId] = msg.sender;
 
         emit HookRegistered(
             publisherContract,
             msg.sender,
             threadId,
-            result,
             signingKey
         );
 
@@ -96,31 +99,46 @@ contract Registry is IRegistry {
         relayers[relayer] = handle;
     }
 
-    function verifyHook(address publisherAddress, uint256 threadId)
-        public
-        view
-        returns (bool)
-    {
+    function verifyHook(
+        address publisherAddress,
+        uint256 threadId,
+        bytes calldata signingKey
+    ) public view returns (bool) {
         return
             IPublisher(publisherAddress).verifyEventHookRegistration(
                 threadId,
-                msg.sender
+                signingKey
             );
     }
 
     function updateHook(
         address publisherContract,
-        address publisherPubKey,
-        uint256 threadId
+        uint256 threadId,
+        bytes calldata signingKey
     ) public returns (bool) {
         require(
             publishers[publisherContract][threadId] == msg.sender,
             "Not authorized to update hook"
         );
 
-        publishers[publisherContract][threadId] = publisherPubKey;
+        emit HookUpdated(publisherContract, msg.sender, threadId, signingKey);
 
-        emit HookUpdated(publisherContract, publisherPubKey, threadId);
+        return true;
+    }
+
+    function removeHook(
+        address publisherContract,
+        uint256 threadId,
+        bytes calldata signingKey
+    ) public returns (bool) {
+        require(
+            publishers[publisherContract][threadId] == msg.sender,
+            "Not authorized to update hook"
+        );
+
+        publishers[publisherContract][threadId] = address(0);
+
+        emit HookRemoved(publisherContract, msg.sender, threadId, signingKey);
 
         return true;
     }

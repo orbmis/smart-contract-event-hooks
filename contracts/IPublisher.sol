@@ -17,22 +17,17 @@ interface IPublisher {
 
     /// @dev Adds / updates a new hook event internally
     /// @param threadId The thread id of the hook
-    /// @param publisherPubKey The public key associated with the private key that signs the hook events
-    function addHook(uint256 threadId, address publisherPubKey) external;
+    /// @param signingKey The public key associated with the private key that signs the hook events
+    function addHook(uint256 threadId, bytes calldata signingKey) external;
 
     /// @dev Called by the registry contract when registering a hook, used to verify the hook is valid before adding
     /// @param threadId The thread id of the hook
-    /// @param publisherPubKey The public key associated with the private key that signs the hook events
+    /// @param signingKey The public key associated with the private key that signs the hook events
     /// @return Returns true if the hook is valid and is ok to add to the registry
     function verifyEventHookRegistration(
         uint256 threadId,
-        address publisherPubKey
+        bytes calldata signingKey
     ) external view returns (bool);
-
-    /// @dev Returns the address that will sign the hook events on a given thread
-    /// @param threadId The thread id of the hook
-    /// @return Returns the address that will sign the hook events on a given thread
-    function getEventHook(uint256 threadId) external view returns (address);
 
     /// @dev Returns true if the specified hook is valid
     /// @param payloadhash The hash of the hook's data payload
